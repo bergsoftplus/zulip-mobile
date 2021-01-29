@@ -1,19 +1,80 @@
 /* @flow strict-local */
+import Immutable from 'immutable';
+
 import { getRecentConversations } from '../pmConversationsSelectors';
+import { keyOfExactUsers } from '../pmConversationsModel';
 import { ALL_PRIVATE_NARROW_STR } from '../../utils/narrow';
 import * as eg from '../../__tests__/lib/exampleData';
+import { ZulipVersion } from '../../utils/zulipVersion';
 
-describe('getRecentConversations', () => {
-  const userJohn = { ...eg.makeUser({ name: 'John' }), user_id: 1 };
-  const userMark = { ...eg.makeUser({ name: 'Mark' }), user_id: 2 };
+const keyForUsers = users =>
+  users
+    .map(u => u.user_id)
+    .sort((a, b) => a - b)
+    .map(String)
+    .join(',');
+
+describe('getRecentConversationsModern', () => {
+  const accounts = [{ ...eg.selfAccount, zulipVersion: new ZulipVersion('2.1') }];
+  const recentsKeyForUsers = users => keyOfExactUsers(users.map(u => u.user_id));
+
+  test('does its job', () => {
+    const state = eg.reduxState({
+      accounts,
+      realm: eg.realmState({ user_id: eg.selfUser.user_id }),
+      users: [eg.selfUser, eg.otherUser, eg.thirdUser],
+      unread: {
+        ...eg.baseReduxState.unread,
+        pms: [
+          { sender_id: eg.selfUser.user_id, unread_message_ids: [4] },
+          { sender_id: eg.otherUser.user_id, unread_message_ids: [1, 3] },
+        ],
+        huddles: [
+          {
+            user_ids_string: keyForUsers([eg.selfUser, eg.otherUser, eg.thirdUser]),
+            unread_message_ids: [2],
+          },
+        ],
+      },
+      pmConversations: {
+        // prettier-ignore
+        map: Immutable.Map([
+          [[], 4],
+          [[eg.otherUser], 3],
+          [[eg.otherUser, eg.thirdUser], 2],
+        ].map(([k, v]) => [recentsKeyForUsers(k), v])),
+        sorted: Immutable.List(
+          [[], [eg.otherUser], [eg.otherUser, eg.thirdUser]].map(recentsKeyForUsers),
+        ),
+      },
+    });
+
+    expect(getRecentConversations(state)).toEqual([
+      { key: eg.selfUser.user_id.toString(), keyRecipients: [eg.selfUser], msgId: 4, unread: 1 },
+      { key: eg.otherUser.user_id.toString(), keyRecipients: [eg.otherUser], msgId: 3, unread: 2 },
+      {
+        key: keyForUsers([eg.selfUser, eg.otherUser, eg.thirdUser]),
+        keyRecipients: [eg.otherUser, eg.thirdUser].sort((a, b) => a.user_id - b.user_id),
+        msgId: 2,
+        unread: 1,
+      },
+    ]);
+  });
+});
+
+describe('getRecentConversationsLegacy', () => {
+  const accounts = [{ ...eg.selfAccount, zulipVersion: new ZulipVersion('2.0') }];
+  const userJohn = eg.makeUser();
+  const userMark = eg.makeUser();
 
   test('when no messages, return no conversations', () => {
     const state = eg.reduxState({
-      realm: eg.realmState({ email: eg.selfUser.email }),
+      accounts,
+      realm: eg.realmState({ user_id: eg.selfUser.user_id }),
       users: [eg.selfUser],
-      narrows: {
+      narrows: Immutable.Map({
         [ALL_PRIVATE_NARROW_STR]: [],
-      },
+      }),
       unread: {
         ...eg.baseReduxState.unread,
         pms: [],
@@ -27,253 +88,95 @@ describe('getRecentConversations', () => {
   });
 
   test('returns unique list of recipients, includes conversations with self', () => {
-    const meAndJohnPm1 = eg.pmMessage({
-      id: 1,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userJohn),
-      ],
-    });
-
-    const meAndMarkPm = eg.pmMessage({
-      id: 2,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userMark),
-      ],
-    });
-
-    const meAndJohnPm2 = eg.pmMessage({
-      id: 3,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userJohn),
-      ],
-    });
-
-    const meOnlyPm = eg.pmMessage({
-      id: 4,
-      display_recipient: [eg.displayRecipientFromUser(eg.selfUser)],
-    });
-
-    const meJohnAndMarkPm = eg.pmMessage({
-      id: 0,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userMark),
-        eg.displayRecipientFromUser(userJohn),
-      ],
-    });
-
     const state = eg.reduxState({
-      realm: eg.realmState({ email: eg.selfUser.email }),
+      accounts,
+      realm: eg.realmState({ user_id: eg.selfUser.user_id }),
       users: [eg.selfUser, userJohn, userMark],
-      narrows: {
-        [ALL_PRIVATE_NARROW_STR]: [
-          meJohnAndMarkPm.id,
-          meAndJohnPm1.id,
-          meAndMarkPm.id,
-          meAndJohnPm2.id,
-          meOnlyPm.id,
-        ],
-      },
-      messages: {
-        [meAndJohnPm1.id]: meAndJohnPm1,
-        [meAndMarkPm.id]: meAndMarkPm,
-        [meAndJohnPm2.id]: meAndJohnPm2,
-        [meOnlyPm.id]: meOnlyPm,
-        [meJohnAndMarkPm.id]: meJohnAndMarkPm,
-      },
+      narrows: Immutable.Map({
+        [ALL_PRIVATE_NARROW_STR]: [0, 1, 2, 3, 4],
+      }),
+      messages: eg.makeMessagesState([
+        eg.pmMessageFromTo(userJohn, [eg.selfUser], { id: 1 }),
+        eg.pmMessageFromTo(userMark, [eg.selfUser], { id: 2 }),
+        eg.pmMessageFromTo(userJohn, [eg.selfUser], { id: 3 }),
+        eg.pmMessageFromTo(eg.selfUser, [], { id: 4 }),
+        eg.pmMessageFromTo(userJohn, [eg.selfUser, userMark], { id: 0 }),
+      ]),
       unread: {
         ...eg.baseReduxState.unread,
         pms: [
-          {
-            sender_id: eg.selfUser.user_id,
-            unread_message_ids: [meOnlyPm.id],
-          },
-          {
-            sender_id: userJohn.user_id,
-            unread_message_ids: [meAndJohnPm1.id, meAndJohnPm2.id],
-          },
-          {
-            sender_id: userMark.user_id,
-            unread_message_ids: [meAndMarkPm.id],
-          },
+          { sender_id: eg.selfUser.user_id, unread_message_ids: [4] },
+          { sender_id: userJohn.user_id, unread_message_ids: [1, 3] },
+          { sender_id: userMark.user_id, unread_message_ids: [2] },
         ],
         huddles: [
           {
-            user_ids_string: [eg.selfUser.user_id, userJohn.user_id, userMark.user_id]
-              .sort((a, b) => a - b)
-              .map(String)
-              .join(','),
-            unread_message_ids: [5], // TODO: where does this come from???
+            user_ids_string: keyForUsers([eg.selfUser, userJohn, userMark]),
+            unread_message_ids: [0],
           },
         ],
       },
     });
 
     const expectedResult = [
+      { key: eg.selfUser.user_id.toString(), keyRecipients: [eg.selfUser], msgId: 4, unread: 1 },
+      { key: userJohn.user_id.toString(), keyRecipients: [userJohn], msgId: 3, unread: 2 },
+      { key: userMark.user_id.toString(), keyRecipients: [userMark], msgId: 2, unread: 1 },
       {
-        ids: eg.selfUser.user_id.toString(),
-        recipients: eg.selfUser.email,
-        msgId: meOnlyPm.id,
-        unread: 1,
-      },
-      {
-        ids: userJohn.user_id.toString(),
-        recipients: userJohn.email,
-        msgId: meAndJohnPm2.id,
-        unread: 2,
-      },
-      {
-        ids: userMark.user_id.toString(),
-        recipients: userMark.email,
-        msgId: meAndMarkPm.id,
-        unread: 1,
-      },
-      {
-        ids: [eg.selfUser.user_id, userJohn.user_id, userMark.user_id]
-          .sort((a, b) => a - b)
-          .map(String)
-          .join(','),
-        recipients: [userJohn.email, userMark.email].sort().join(','),
-        msgId: meJohnAndMarkPm.id,
+        key: keyForUsers([eg.selfUser, userJohn, userMark]),
+        keyRecipients: [userJohn, userMark].sort((a, b) => a.user_id - b.user_id),
+        msgId: 0,
         unread: 1,
       },
     ];
 
     const actual = getRecentConversations(state);
 
-    expect(actual).toEqual(expectedResult);
+    expect(actual).toMatchObject(expectedResult);
   });
 
   test('returns recipients sorted by last activity', () => {
-    // Maybe we can share these definitions with the above test;
-    // first, we have to sort out why the IDs are different.
-
-    const meAndMarkPm1 = eg.pmMessage({
-      id: 1,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userMark),
-      ],
-    });
-
-    const meAndJohnPm1 = eg.pmMessage({
-      id: 2,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userJohn),
-      ],
-    });
-
-    const meAndMarkPm2 = eg.pmMessage({
-      id: 3,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userMark),
-      ],
-    });
-
-    const meAndJohnPm2 = eg.pmMessage({
-      id: 4,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userJohn),
-      ],
-    });
-
-    const meJohnAndMarkPm = eg.pmMessage({
-      id: 5,
-      display_recipient: [
-        eg.displayRecipientFromUser(eg.selfUser),
-        eg.displayRecipientFromUser(userJohn),
-        eg.displayRecipientFromUser(userMark),
-      ],
-    });
-
-    const meOnlyPm = eg.pmMessage({
-      id: 6,
-      display_recipient: [eg.displayRecipientFromUser(eg.selfUser)],
-    });
-
     const state = eg.reduxState({
-      realm: eg.realmState({ email: eg.selfUser.email }),
+      accounts,
+      realm: eg.realmState({ user_id: eg.selfUser.user_id }),
       users: [eg.selfUser, userJohn, userMark],
-      narrows: {
-        [ALL_PRIVATE_NARROW_STR]: [
-          meAndMarkPm1.id,
-          meAndJohnPm1.id,
-          meAndMarkPm2.id,
-          meAndJohnPm2.id,
-          meJohnAndMarkPm.id,
-          meOnlyPm.id,
-        ],
-      },
-      messages: {
-        [meAndJohnPm1.id]: meAndJohnPm1,
-        [meAndMarkPm1.id]: meAndMarkPm1,
-        [meAndJohnPm2.id]: meAndJohnPm2,
-        [meAndMarkPm2.id]: meAndMarkPm2,
-        [meJohnAndMarkPm.id]: meJohnAndMarkPm,
-        [meOnlyPm.id]: meOnlyPm,
-      },
+      narrows: Immutable.Map({
+        [ALL_PRIVATE_NARROW_STR]: [1, 2, 3, 4, 5, 6],
+      }),
+      messages: eg.makeMessagesState([
+        eg.pmMessageFromTo(userJohn, [eg.selfUser], { id: 2 }),
+        eg.pmMessageFromTo(userMark, [eg.selfUser], { id: 1 }),
+        eg.pmMessageFromTo(userJohn, [eg.selfUser], { id: 4 }),
+        eg.pmMessageFromTo(userMark, [eg.selfUser], { id: 3 }),
+        eg.pmMessageFromTo(userMark, [eg.selfUser, userJohn], { id: 5 }),
+        eg.pmMessageFromTo(eg.selfUser, [], { id: 6 }),
+      ]),
       unread: {
         ...eg.baseReduxState.unread,
         pms: [
-          {
-            sender_id: eg.selfUser.user_id,
-            unread_message_ids: [meAndJohnPm2.id],
-          },
-          {
-            sender_id: userJohn.user_id,
-            unread_message_ids: [meAndMarkPm1.id, meAndMarkPm2.id],
-          },
-          {
-            sender_id: userMark.user_id,
-            unread_message_ids: [meAndJohnPm1.id],
-          },
+          { sender_id: eg.selfUser.user_id, unread_message_ids: [6] },
+          { sender_id: userJohn.user_id, unread_message_ids: [2, 4] },
+          { sender_id: userMark.user_id, unread_message_ids: [1, 3] },
         ],
         huddles: [
           {
-            user_ids_string: [eg.selfUser.user_id, userJohn.user_id, userMark.user_id]
-              .sort((a, b) => a - b)
-              .map(String)
-              .join(','),
-            unread_message_ids: [meJohnAndMarkPm.id],
+            user_ids_string: keyForUsers([eg.selfUser, userJohn, userMark]),
+            unread_message_ids: [5],
           },
         ],
       },
     });
 
     const expectedResult = [
+      { key: eg.selfUser.user_id.toString(), keyRecipients: [eg.selfUser], msgId: 6, unread: 1 },
       {
-        ids: eg.selfUser.user_id.toString(),
-        recipients: eg.selfUser.email,
-        msgId: meOnlyPm.id,
+        key: keyForUsers([eg.selfUser, userJohn, userMark]),
+        keyRecipients: [userJohn, userMark].sort((a, b) => a.user_id - b.user_id),
+        msgId: 5,
         unread: 1,
       },
-      {
-        ids: [eg.selfUser.user_id, userJohn.user_id, userMark.user_id]
-          .sort((a, b) => a - b)
-          .map(String)
-          .join(','),
-        recipients: [userJohn.email, userMark.email].sort().join(','),
-        msgId: meJohnAndMarkPm.id,
-        unread: 1,
-      },
-      {
-        ids: userJohn.user_id.toString(),
-        recipients: userJohn.email,
-        msgId: meAndJohnPm2.id,
-        unread: 2,
-      },
-      {
-        ids: userMark.user_id.toString(),
-        recipients: userMark.email,
-        msgId: meAndMarkPm2.id,
-        unread: 1,
-      },
+      { key: userJohn.user_id.toString(), keyRecipients: [userJohn], msgId: 4, unread: 2 },
+      { key: userMark.user_id.toString(), keyRecipients: [userMark], msgId: 3, unread: 2 },
     ];
 
     const actual = getRecentConversations(state);

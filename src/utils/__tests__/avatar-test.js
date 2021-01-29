@@ -1,38 +1,197 @@
 /* @flow strict-local */
-import { getMediumAvatar, getGravatarFromEmail } from '../avatar';
+import md5 from 'blueimp-md5';
 
-// avatarUrl can be converted to retrieve medium sized avatars(mediumAvatarUrl) if and only if
-// avatarUrl contains avatar image name with a .png extension (e.g. AVATAR_IMAGE_NAME.png).
+import { AvatarURL, GravatarURL, FallbackAvatarURL, UploadedAvatarURL } from '../avatar';
+import * as eg from '../../__tests__/lib/exampleData';
 
-describe('getMediumAvatar', () => {
-  test('if avatarUrl can be converted into mediumAvatarUrl, return mediumAvatarUrl', () => {
-    const avatarUrl = '/user_avatars/AVATAR_IMAGE_NAME.png/';
-    const mediumAvatarUrl = '/user_avatars/AVATAR_IMAGE_NAME-medium.png/';
+describe('AvatarURL', () => {
+  describe('fromUserOrBotData', () => {
+    const user = eg.makeUser();
+    const { email, user_id: userId } = user;
+    const realm = eg.realm;
 
-    const resultUrl = getMediumAvatar(avatarUrl);
+    test('gives a `FallbackAvatarURL` if `rawAvatarURL` is undefined', () => {
+      const rawAvatarUrl = undefined;
+      expect(AvatarURL.fromUserOrBotData({ rawAvatarUrl, userId, email, realm })).toBeInstanceOf(
+        FallbackAvatarURL,
+      );
+    });
 
-    expect(resultUrl).toEqual(mediumAvatarUrl);
-  });
+    test('gives a `GravatarURL` if `rawAvatarURL` is null', () => {
+      const rawAvatarUrl = null;
+      expect(AvatarURL.fromUserOrBotData({ rawAvatarUrl, userId, email, realm })).toBeInstanceOf(
+        GravatarURL,
+      );
+    });
 
-  test('if avatarUrl cannot be converted into mediumAvatarUrl, return avatarUrl itself', () => {
-    const avatarUrl = '/avatar/AVATAR_IMAGE_NAME/';
+    test('gives a `GravatarURL` if `rawAvatarURL` is a URL string on Gravatar origin', () => {
+      const rawAvatarUrl =
+        'https://secure.gravatar.com/avatar/2efaec12efd9bea8a089299208117786?d=identicon&version=3';
+      expect(AvatarURL.fromUserOrBotData({ rawAvatarUrl, userId, email, realm })).toBeInstanceOf(
+        GravatarURL,
+      );
+    });
 
-    const resultUrl = getMediumAvatar(avatarUrl);
+    test('gives an `UploadedAvatarURL` if `rawAvatarURL` is a non-Gravatar absolute URL string', () => {
+      const rawAvatarUrl =
+        'https://zulip-avatars.s3.amazonaws.com/13/430713047f2cffed661f84e139a64f864f17f286?x=x&version=5';
+      expect(AvatarURL.fromUserOrBotData({ rawAvatarUrl, userId, email, realm })).toBeInstanceOf(
+        UploadedAvatarURL,
+      );
+    });
 
-    expect(resultUrl).toEqual(avatarUrl);
+    test('gives an `UploadedAvatarURL` if `rawAvatarURL` is a relative URL string', () => {
+      const rawAvatarUrl =
+        '/user_avatars/2/08fb6d007eb10a56efee1d64760fbeb6111c4352.png?x=x&version=2';
+      expect(AvatarURL.fromUserOrBotData({ rawAvatarUrl, userId, email, realm })).toBeInstanceOf(
+        UploadedAvatarURL,
+      );
+    });
   });
 });
 
-describe('getGravatarFromEmail', () => {
-  test('given an email return gravatar url', () => {
-    expect(getGravatarFromEmail('test@example.com', 80)).toEqual(
-      'https://secure.gravatar.com/avatar/55502f40dc8b7c769880b10874abc9d0?d=identicon&s=80',
-    );
+const SIZES_TO_TEST = [24, 32, 48, 80, 200];
+
+describe('GravatarURL', () => {
+  test('serializes/deserializes correctly', () => {
+    const instance = GravatarURL.validateAndConstructInstance({ email: eg.selfUser.email });
+
+    const roundTripped = GravatarURL.deserialize(GravatarURL.serialize(instance));
+
+    SIZES_TO_TEST.forEach(size => {
+      expect(instance.get(size).toString()).toEqual(roundTripped.get(size).toString());
+    });
   });
 
-  test('given a case-sensitive email canonize and return gravatar url', () => {
-    expect(getGravatarFromEmail('Test@example.com', 80)).toEqual(
-      'https://secure.gravatar.com/avatar/55502f40dc8b7c769880b10874abc9d0?d=identicon&s=80',
-    );
+  test('lowercases email address before hashing', () => {
+    const email = 'uNuSuAlCaPs@example.com';
+    const instance = GravatarURL.validateAndConstructInstance({ email });
+    SIZES_TO_TEST.forEach(size => {
+      expect(instance.get(size).toString()).toContain(md5('unusualcaps@example.com'));
+    });
+  });
+
+  test('uses URL from server, if provided', () => {
+    const email = 'user13313@chat.zulip.org';
+    const urlFromServer =
+      'https://secure.gravatar.com/avatar/de6685f1d3eb74439c1dcda84f92543e?d=identicon&version=1';
+    const instance = GravatarURL.validateAndConstructInstance({
+      email,
+      urlFromServer,
+    });
+    SIZES_TO_TEST.forEach(size => {
+      const clonedUrlOfSize = new URL(instance.get(size).toString());
+      const clonedUrlFromServer = new URL(urlFromServer);
+      clonedUrlFromServer.searchParams.delete('s');
+      clonedUrlOfSize.searchParams.delete('s');
+      // `urlFromServer` should equal the result for this size, modulo
+      // the actual size param.
+      expect(clonedUrlOfSize.toString()).toEqual(clonedUrlFromServer.toString());
+    });
+  });
+
+  test('produces corresponding URLs for all sizes', () => {
+    const instance = GravatarURL.validateAndConstructInstance({ email: eg.selfUser.email });
+
+    SIZES_TO_TEST.forEach(size => {
+      expect(instance.get(size).toString()).toContain(`s=${size.toString()}`);
+    });
+  });
+});
+
+describe('UploadedAvatarURL', () => {
+  test('serializes/deserializes correctly', () => {
+    const instance = UploadedAvatarURL.validateAndConstructInstance({
+      realm: eg.realm,
+      absoluteOrRelativeUrl:
+        'https://zulip-avatars.s3.amazonaws.com/13/430713047f2cffed661f84e139a64f864f17f286?x=x&version=5',
+    });
+
+    const roundTripped = UploadedAvatarURL.deserialize(UploadedAvatarURL.serialize(instance));
+
+    SIZES_TO_TEST.forEach(size => {
+      expect(instance.get(size).toString()).toEqual(roundTripped.get(size).toString());
+    });
+  });
+
+  test('if a relative URL, gives a URL on the given realm', () => {
+    const instance = UploadedAvatarURL.validateAndConstructInstance({
+      realm: new URL('https://chat.zulip.org'),
+      absoluteOrRelativeUrl:
+        '/user_avatars/2/e35cdbc4771c5e4b94e705bf6ff7cca7fa1efcae.png?x=x&version=2',
+    });
+
+    SIZES_TO_TEST.forEach(size => {
+      const result = instance.get(size).toString();
+      expect(
+        result
+          === 'https://chat.zulip.org/user_avatars/2/e35cdbc4771c5e4b94e705bf6ff7cca7fa1efcae.png?x=x&version=2'
+          || result
+            === 'https://chat.zulip.org/user_avatars/2/e35cdbc4771c5e4b94e705bf6ff7cca7fa1efcae-medium.png?x=x&version=2',
+      ).toBeTrue();
+    });
+  });
+
+  test('if an absolute URL, just use it', () => {
+    const instance = UploadedAvatarURL.validateAndConstructInstance({
+      realm: new URL('https://chat.zulip.org'),
+      absoluteOrRelativeUrl:
+        'https://zulip-avatars.s3.amazonaws.com/13/430713047f2cffed661f84e139a64f864f17f286?x=x&version=5',
+    });
+    SIZES_TO_TEST.forEach(size => {
+      expect(instance.get(size).toString()).toMatch(
+        'https://zulip-avatars.s3.amazonaws.com/13/430713047f2cffed661f84e139a64f864f17f286?x=x&version=5',
+      );
+    });
+  });
+
+  test('converts *.png to *-medium.png for sizes over 100', () => {
+    const realm = new URL('https://chat.zulip.org');
+    const instance = UploadedAvatarURL.validateAndConstructInstance({
+      realm,
+      absoluteOrRelativeUrl:
+        '/user_avatars/2/e35cdbc4771c5e4b94e705bf6ff7cca7fa1efcae.png?x=x&version=2',
+    });
+    const sizesOver100 = SIZES_TO_TEST.filter(s => s > 100);
+    const sizesAtMost100 = SIZES_TO_TEST.filter(s => s <= 100);
+    sizesOver100.forEach(size => {
+      expect(instance.get(size).toString()).toEqual(
+        'https://chat.zulip.org/user_avatars/2/e35cdbc4771c5e4b94e705bf6ff7cca7fa1efcae-medium.png?x=x&version=2',
+      );
+    });
+    sizesAtMost100.forEach(size => {
+      expect(instance.get(size).toString()).toEqual(
+        'https://chat.zulip.org/user_avatars/2/e35cdbc4771c5e4b94e705bf6ff7cca7fa1efcae.png?x=x&version=2',
+      );
+    });
+  });
+});
+
+describe('FallbackAvatarURL', () => {
+  test('serializes/deserializes correctly', () => {
+    const instance = FallbackAvatarURL.validateAndConstructInstance({
+      realm: eg.realm,
+      userId: eg.selfUser.user_id,
+    });
+
+    const roundTripped = FallbackAvatarURL.deserialize(FallbackAvatarURL.serialize(instance));
+
+    SIZES_TO_TEST.forEach(size => {
+      expect(instance.get(size).toString()).toEqual(roundTripped.get(size).toString());
+    });
+  });
+
+  test('gives the `/avatar/{user_id}` URL, on the provided realm', () => {
+    const userId = eg.selfUser.user_id;
+    const instance = FallbackAvatarURL.validateAndConstructInstance({
+      realm: new URL('https://chat.zulip.org'),
+      userId,
+    });
+
+    SIZES_TO_TEST.forEach(size => {
+      expect(instance.get(size).toString()).toEqual(
+        `https://chat.zulip.org/avatar/${userId.toString()}`,
+      );
+    });
   });
 });

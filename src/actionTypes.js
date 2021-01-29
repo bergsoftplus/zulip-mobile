@@ -3,7 +3,6 @@ import {
   REHYDRATE,
   APP_ONLINE,
   DEAD_QUEUE,
-  INIT_SAFE_AREA_INSETS,
   APP_ORIENTATION,
   DEBUG_FLAG_TOGGLE,
   ACCOUNT_SWITCH,
@@ -22,7 +21,6 @@ import {
   INITIAL_FETCH_COMPLETE,
   SETTINGS_CHANGE,
   DRAFT_UPDATE,
-  DO_NARROW,
   PRESENCE_RESPONSE,
   MESSAGE_SEND_START,
   MESSAGE_SEND_COMPLETE,
@@ -62,7 +60,6 @@ import {
 import type { MessageEvent, PresenceEvent, StreamEvent, SubmessageEvent } from './api/eventTypes';
 
 import type {
-  Dimensions,
   Orientation,
   GlobalState,
   Message,
@@ -83,11 +80,10 @@ import type {
   CaughtUpState,
   MuteState,
   AlertWordsState,
+  UserId,
   UserStatusEvent,
 } from './types';
 import type { ZulipVersion } from './utils/zulipVersion';
-
-export type { NavigationAction } from 'react-navigation';
 
 /**
  * Dispatched by redux-persist when the stored state is loaded.
@@ -117,11 +113,6 @@ type AppOnlineAction = {|
 
 type DeadQueueAction = {|
   type: typeof DEAD_QUEUE,
-|};
-
-type InitSafeAreaInsetsAction = {|
-  type: typeof INIT_SAFE_AREA_INSETS,
-  safeAreaInsets: Dimensions,
 |};
 
 type AppOrientationAction = {|
@@ -228,6 +219,7 @@ type MessageFetchCompleteAction = {|
   numAfter: number,
   foundNewest: boolean | void,
   foundOldest: boolean | void,
+  ownUserId: UserId,
 |};
 
 type InitialFetchStartAction = {|
@@ -294,7 +286,7 @@ type EventSubscriptionPeerAddAction = {|
   type: typeof EVENT_SUBSCRIPTION,
   op: 'peer_add',
   subscriptions: string[],
-  user_id: number,
+  user_id: UserId,
 |};
 
 type EventSubscriptionPeerRemoveAction = {|
@@ -302,7 +294,7 @@ type EventSubscriptionPeerRemoveAction = {|
   type: typeof EVENT_SUBSCRIPTION,
   op: 'peer_remove',
   subscriptions: string[],
-  user_id: number,
+  user_id: UserId,
 |};
 
 type GenericEventAction = {|
@@ -314,7 +306,7 @@ type EventNewMessageAction = {|
   ...$Diff<MessageEvent, { flags: mixed }>,
   type: typeof EVENT_NEW_MESSAGE,
   caughtUp: CaughtUpState,
-  ownEmail: string,
+  ownUserId: UserId,
 |};
 
 type EventSubmessageAction = {|
@@ -333,14 +325,28 @@ type EventUpdateMessageAction = {|
   message_id: number,
   // TODO is it really right that just one of the orig_* is optional?
   orig_content: string,
-  // $FlowFixMe clarify orig_subject vs. other orig_*, and missing vs. empty
+
+  // TODO: The doc for this field isn't yet correct; it turns out that
+  // the question of whether `orig_subject` is present or not is
+  // complicated; see discussion at
+  // https://chat.zulip.org/#narrow/stream/206-zulip-terminal/topic/subject.20always.20present.20in.20event/near/1098954.
+  //
+  // We can be pretty sure of a few things, though:
+  // - it will not be present if the message doesn't have a topic
+  //   (i.e., if it's a private message)
+  // - it's guaranteed to be present if the topic did indeed change
+  // - it will never be an empty string, because the server doesn't
+  //   accept the empty string for a message's topic; it requires
+  //   clients to specify something like `(no topic)` if no topic is
+  //   desired.
   orig_subject?: string,
+
   orig_rendered_content: string,
   prev_rendered_content_version: number,
   rendered_content: string,
   subject_links: string[],
   subject: string,
-  user_id: number,
+  user_id: UserId,
 |};
 
 type EventReactionCommon = {|
@@ -368,13 +374,13 @@ type EventPresenceAction = {|
 
 type EventTypingCommon = {|
   ...ServerEvent,
-  ownUserId: number,
-  recipients: Array<{
-    user_id: number,
+  ownUserId: UserId,
+  recipients: $ReadOnlyArray<{
+    user_id: UserId,
     email: string,
   }>,
   sender: {
-    user_id: number,
+    user_id: UserId,
     email: string,
   },
   time: number,
@@ -415,9 +421,11 @@ type EventUserRemoveAction = {|
 |};
 
 type EventUserUpdateAction = {|
+  ...ServerEvent,
   type: typeof EVENT_USER_UPDATE,
-  // In reality there's more -- but this will prevent accidentally using
-  // the type before going and adding those other properties here properly.
+  userId: UserId,
+  // Include only the fields that should be overwritten.
+  person: $Shape<User>,
 |};
 
 type EventMutedTopicsAction = {|
@@ -453,7 +461,7 @@ type EventUserGroupAddMembersAction = {|
   type: typeof EVENT_USER_GROUP_ADD_MEMBERS,
   op: 'add_members',
   group_id: number,
-  user_ids: number[],
+  user_ids: UserId[],
 |};
 
 type EventUserGroupRemoveMembersAction = {|
@@ -461,7 +469,7 @@ type EventUserGroupRemoveMembersAction = {|
   type: typeof EVENT_USER_GROUP_REMOVE_MEMBERS,
   op: 'remove_members',
   group_id: number,
-  user_ids: number[],
+  user_ids: UserId[],
 |};
 
 type EventRealmEmojiUpdateAction = {|
@@ -541,11 +549,6 @@ type DraftUpdateAction = {|
   content: string,
 |};
 
-type DoNarrowAction = {|
-  type: typeof DO_NARROW,
-  narrow: Narrow,
-|};
-
 type PresenceResponseAction = {|
   type: typeof PRESENCE_RESPONSE,
   presence: PresenceState,
@@ -605,9 +608,7 @@ type RealmAction = RealmInitAction | UnackPushTokenAction | AckPushTokenAction;
 type SessionAction =
   | RehydrateAction
   | AppOnlineAction
-  | InitSafeAreaInsetsAction
   | AppOrientationAction
-  | DoNarrowAction
   | GotPushTokenAction
   | DebugFlagToggleAction
   | ToggleOutboxSendingAction;

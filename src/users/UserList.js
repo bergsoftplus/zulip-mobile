@@ -2,7 +2,7 @@
 import React, { PureComponent } from 'react';
 import { SectionList } from 'react-native';
 
-import type { PresenceState, User } from '../types';
+import type { PresenceState, UserOrBot } from '../types';
 import { createStyleSheet } from '../styles';
 import { SectionHeader, SearchEmptyState } from '../common';
 import UserItem from './UserItem';
@@ -16,10 +16,10 @@ const styles = createStyleSheet({
 
 type Props = $ReadOnly<{|
   filter: string,
-  users: User[],
-  selected: User[],
+  users: $ReadOnlyArray<UserOrBot>,
+  selected: $ReadOnlyArray<UserOrBot>,
   presences: PresenceState,
-  onPress: (email: string) => void,
+  onPress: (user: UserOrBot) => void,
 |}>;
 
 export default class UserList extends PureComponent<Props> {
@@ -38,7 +38,7 @@ export default class UserList extends PureComponent<Props> {
     const groupedUsers = groupUsersByStatus(shownUsers, presences);
     const sections = Object.keys(groupedUsers).map(key => ({
       key: `${key.charAt(0).toUpperCase()}${key.slice(1)}`,
-      data: groupedUsers[key],
+      data: groupedUsers[key].map(u => u.user_id),
     }));
 
     return (
@@ -48,20 +48,18 @@ export default class UserList extends PureComponent<Props> {
         keyboardShouldPersistTaps="always"
         initialNumToRender={20}
         sections={sections}
-        keyExtractor={item => item.email}
+        keyExtractor={item => item}
         renderItem={({ item }) => (
           <UserItem
-            key={item.email}
-            fullName={item.full_name}
-            avatarUrl={item.avatar_url}
-            email={item.email}
+            key={item}
+            userId={item}
             onPress={onPress}
-            isSelected={!!selected.find(user => user.user_id === item.user_id)}
+            isSelected={!!selected.find(user => user.user_id === item)}
           />
         )}
         renderSectionHeader={({ section }) =>
           section.data.length === 0 ? null : (
-            // $FlowFixMe
+            // $FlowFixMe[incompatible-type]
             <SectionHeader text={section.key} />
           )
         }

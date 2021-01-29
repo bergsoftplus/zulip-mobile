@@ -1,8 +1,9 @@
 /* @flow strict-local */
 import { addBreadcrumb } from '@sentry/react-native';
-import type { Narrow, Stream, User } from '../types';
-import { topicNarrow, streamNarrow, groupNarrow, specialNarrow } from './narrow';
-import { isUrlOnRealm } from './url';
+import { makeUserId } from '../api/idTypes';
+import type { Narrow, Stream, UserId } from '../types';
+import { topicNarrow, streamNarrow, specialNarrow, pmNarrowFromRecipients } from './narrow';
+import { pmKeyRecipientsFromIds } from './recipient';
 
 // TODO: Work out what this does, write a jsdoc for its interface, and
 // reimplement using URL object (not just for the realm)
@@ -21,22 +22,49 @@ const getPathsFromUrl = (url: string = '', realm: URL) => {
   return paths;
 };
 
-// TODO: Work out what this does, write a jsdoc for its interface, and
-// reimplement using URL object (not just for the realm)
-/** PRIVATE -- exported only for tests. */
-export const isInternalLink = (url: string, realm: URL): boolean =>
-  isUrlOnRealm(url, realm)
-    ? /^(\/#narrow|#narrow)/i.test(url.split(realm.toString()).pop())
-    : false;
+/**
+ * PRIVATE -- exported only for tests.
+ *
+ * Test for a link to a Zulip narrow on the given realm.
+ *
+ * True just if the given URL string appears to be a link, either absolute
+ * or relative, to a Zulip narrow on the given realm.
+ *
+ * This performs a call to `new URL` and therefore may take a fraction of a
+ * millisecond.  Avoid using in a context where it might be called more than
+ * 10 or 100 times per user action.
+ */
+export const isInternalLink = (url: string, realm: URL): boolean => {
+  const resolved = new URL(url, realm);
+  return (
+    resolved.origin === realm.origin
+    && resolved.pathname === '/'
+    && resolved.search === ''
+    && /^#narrow\//i.test(resolved.hash)
+  );
+};
 
+/**
+ * PRIVATE -- exported only for tests.
+ *
+ * This performs a call to `new URL` and therefore may take a fraction of a
+ * millisecond.  Avoid using in a context where it might be called more than
+ * 10 or 100 times per user action.
+ */
 // TODO: Work out what this does, write a jsdoc for its interface, and
 // reimplement using URL object (not just for the realm)
-/** PRIVATE -- exported only for tests. */
 export const isMessageLink = (url: string, realm: URL): boolean =>
   isInternalLink(url, realm) && url.includes('near');
 
 type LinkType = 'external' | 'home' | 'pm' | 'topic' | 'stream' | 'special';
 
+/**
+ * PRIVATE -- exported only for tests.
+ *
+ * This performs a call to `new URL` and therefore may take a fraction of a
+ * millisecond.  Avoid using in a context where it might be called more than
+ * 10 or 100 times per user action.
+ */
 // TODO: Work out what this does, write a jsdoc for its interface, and
 // reimplement using URL object (not just for the realm)
 export const getLinkType = (url: string, realm: URL): LinkType => {
@@ -110,47 +138,59 @@ const parseStreamOperand = (operand, streamsById): string => {
 const parseTopicOperand = operand => decodeHashComponent(operand);
 
 /** Parse the operand of a `pm-with` operator. */
-const parsePmOperand = (operand, usersById) => {
-  const recipientIds = operand.split('-')[0].split(',');
-  const recipientEmails = [];
-  for (let i = 0; i < recipientIds.length; ++i) {
-    const user = usersById.get(parseInt(recipientIds[i], 10));
-    if (user === undefined) {
-      return null;
-    }
-    recipientEmails.push(user.email);
-  }
-  return recipientEmails;
+const parsePmOperand = operand => {
+  const idStrs = operand.split('-')[0].split(',');
+  return idStrs.map(s => makeUserId(parseInt(s, 10)));
 };
 
+/**
+ * TODO write jsdoc
+ *
+ * This performs a call to `new URL` and therefore may take a fraction of a
+ * millisecond.  Avoid using in a context where it might be called more than
+ * 10 or 100 times per user action.
+ */
 export const getNarrowFromLink = (
   url: string,
   realm: URL,
-  usersById: Map<number, User>,
   streamsById: Map<number, Stream>,
+  ownUserId: UserId,
 ): Narrow | null => {
   const type = getLinkType(url, realm);
   const paths = getPathsFromUrl(url, realm);
 
   switch (type) {
     case 'pm': {
-      const recipientEmails = parsePmOperand(paths[1], usersById);
-      if (recipientEmails === null) {
-        return null;
-      }
-      return groupNarrow(recipientEmails);
+      // TODO: This case is pretty useless in practice, due to basically a
+      //   bug in the webapp: the URL that appears in the location bar for a
+      //   group PM conversation excludes self, so it's unusable for anyone
+      //   else.  In particular this will foil you if, say, you try to give
+      //   someone else in the conversation a link to a particular message.
+      const ids = parsePmOperand(paths[1]);
+      return pmNarrowFromRecipients(pmKeyRecipientsFromIds(ids, ownUserId));
     }
     case 'topic':
       return topicNarrow(parseStreamOperand(paths[1], streamsById), parseTopicOperand(paths[3]));
     case 'stream':
       return streamNarrow(parseStreamOperand(paths[1], streamsById));
     case 'special':
-      return specialNarrow(paths[1]);
+      try {
+        return specialNarrow(paths[1]);
+      } catch (e) {
+        return null;
+      }
     default:
       return null;
   }
 };
 
+/**
+ * TODO write jsdoc
+ *
+ * This performs a call to `new URL` and therefore may take a fraction of a
+ * millisecond.  Avoid using in a context where it might be called more than
+ * 10 or 100 times per user action.
+ */
 export const getMessageIdFromLink = (url: string, realm: URL): number => {
   const paths = getPathsFromUrl(url, realm);
 

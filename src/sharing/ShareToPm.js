@@ -1,11 +1,13 @@
 /* @flow strict-local */
 import React from 'react';
 import { View, Image, ScrollView, Modal, BackHandler } from 'react-native';
-import { type NavigationNavigatorProps } from 'react-navigation';
-import type { Dispatch, SharedData, User, Auth, GetText } from '../types';
+
+import type { RouteProp } from '../react-navigation';
+import type { SharingNavigationProp } from './SharingScreen';
+import * as NavigationService from '../nav/NavigationService';
+import type { Dispatch, Auth, GetText, SharedData, UserId } from '../types';
 import { createStyleSheet } from '../styles';
 import { TranslationContext } from '../boot/TranslationProvider';
-
 import { connect } from '../react-redux';
 import { ZulipButton, Input, Label } from '../common';
 import UserItem from '../users/UserItem';
@@ -54,13 +56,15 @@ const styles = createStyleSheet({
 });
 
 type Props = $ReadOnly<{|
-  ...$Exact<NavigationNavigatorProps<{||}, {| params: {| sharedData: SharedData |} |}>>,
+  navigation: SharingNavigationProp<'share-to-pm'>,
+  route: RouteProp<'share-to-pm', {| sharedData: SharedData |}>,
+
   dispatch: Dispatch,
   auth: Auth,
 |}>;
 
 type State = $ReadOnly<{|
-  selectedRecipients: User[],
+  selectedRecipients: $ReadOnlyArray<UserId>,
   message: string,
   choosingRecipients: boolean,
   sending: boolean,
@@ -71,7 +75,7 @@ class ShareToPm extends React.Component<Props, State> {
   context: GetText;
 
   state = (() => {
-    const { sharedData } = this.props.navigation.state.params;
+    const { sharedData } = this.props.route.params;
     return {
       selectedRecipients: [],
       message: sharedData.type === 'text' ? sharedData.sharedText : '',
@@ -88,7 +92,7 @@ class ShareToPm extends React.Component<Props, State> {
     this.setState({ sending: true });
   };
 
-  handleChooseRecipients = (selectedRecipients: Array<User>) => {
+  handleChooseRecipients = selectedRecipients => {
     this.setState({ selectedRecipients });
     this.setState({ choosingRecipients: false });
   };
@@ -96,7 +100,7 @@ class ShareToPm extends React.Component<Props, State> {
   handleSend = async () => {
     const _ = this.context;
     const { auth } = this.props;
-    const { sharedData } = this.props.navigation.state.params;
+    const { sharedData } = this.props.route.params;
     const { selectedRecipients, message } = this.state;
     const data = { selectedRecipients, message, sharedData, type: 'pm' };
 
@@ -106,9 +110,7 @@ class ShareToPm extends React.Component<Props, State> {
   };
 
   finishShare = () => {
-    const { dispatch } = this.props;
-
-    dispatch(navigateBack());
+    NavigationService.dispatch(navigateBack());
     BackHandler.exitApp();
   };
 
@@ -118,7 +120,7 @@ class ShareToPm extends React.Component<Props, State> {
 
   isSendButtonEnabled = () => {
     const { message, selectedRecipients } = this.state;
-    const { sharedData } = this.props.navigation.state.params;
+    const { sharedData } = this.props.route.params;
 
     if (sharedData.type === 'text') {
       return message !== '' && selectedRecipients.length > 0;
@@ -134,16 +136,8 @@ class ShareToPm extends React.Component<Props, State> {
       return <Label text="Please choose recipients to share with" />;
     }
     const preview = [];
-    selectedRecipients.forEach((user: User) => {
-      preview.push(
-        <UserItem
-          avatarUrl={user.avatar_url}
-          email={user.email}
-          fullName={user.full_name}
-          onPress={() => {}}
-          key={user.user_id}
-        />,
-      );
+    selectedRecipients.forEach(userId => {
+      preview.push(<UserItem userId={userId} key={userId} />);
     });
     return preview;
   };
@@ -159,16 +153,11 @@ class ShareToPm extends React.Component<Props, State> {
       );
     }
 
-    const { sharedData } = this.props.navigation.state.params;
+    const { sharedData } = this.props.route.params;
     let sharePreview = null;
     if (sharedData.type === 'image') {
       sharePreview = (
-        <Image
-          source={{ uri: sharedData.sharedImageUrl }}
-          width={200}
-          height={200}
-          style={styles.imagePreview}
-        />
+        <Image source={{ uri: sharedData.sharedImageUrl }} style={styles.imagePreview} />
       );
     }
 

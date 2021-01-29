@@ -4,6 +4,7 @@ import { Platform, View } from 'react-native';
 import type { DocumentPickerResponse } from 'react-native-document-picker';
 import ImagePicker from 'react-native-image-picker';
 
+import * as NavigationService from '../nav/NavigationService';
 import type { Dispatch, Narrow } from '../types';
 import { connect } from '../react-redux';
 import { showErrorAlert } from '../utils/info';
@@ -82,7 +83,7 @@ class ComposeMenu extends PureComponent<Props> {
       return;
     }
 
-    // $FlowFixMe sketchy falsiness check, because upstream API is unclear
+    // $FlowFixMe[sketchy-null-bool]: Upstream API is unclear.
     const error: string | null = response.error || null;
     if (error !== null) {
       showErrorAlert('Error', error);
@@ -122,7 +123,7 @@ class ComposeMenu extends PureComponent<Props> {
     // from this library when in the test environment.
     const DocumentPicker = (await import('react-native-document-picker')).default;
 
-    let response;
+    let response = undefined;
     try {
       response = (await DocumentPicker.pick({
         type: [DocumentPicker.types.allFiles],
@@ -154,7 +155,7 @@ class ComposeMenu extends PureComponent<Props> {
   });
 
   render() {
-    const { dispatch, expanded, insertVideoCallLink, onExpandContract } = this.props;
+    const { expanded, insertVideoCallLink, onExpandContract } = this.props;
     const numIcons =
       3 + (Platform.OS === 'android' ? 1 : 0) + (insertVideoCallLink !== null ? 1 : 0);
 
@@ -171,7 +172,7 @@ class ComposeMenu extends PureComponent<Props> {
               style={this.styles.composeMenuButton}
               size={24}
               onPress={() => {
-                dispatch(navigateToCreateGroup());
+                NavigationService.dispatch(navigateToCreateGroup());
               }}
             />
             {Platform.OS === 'android' && (

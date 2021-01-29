@@ -2,10 +2,11 @@
 import type { GetState, Dispatch, Narrow, Topic, Action, Outbox, Stream } from '../types';
 import * as api from '../api';
 import { INIT_TOPICS } from '../actionConstants';
-import { isStreamNarrow } from '../utils/narrow';
+import { isStreamNarrow, streamNameOfNarrow } from '../utils/narrow';
 import { getAuth, getStreams } from '../selectors';
 import { deleteOutboxMessage } from '../actions';
 import { getOutbox } from '../directSelectors';
+import { streamNameOfStreamMessage } from '../utils/recipient';
 
 export const initTopics = (topics: Topic[], streamId: number): Action => ({
   type: INIT_TOPICS,
@@ -28,9 +29,11 @@ export const fetchTopicsForStream = (narrow: Narrow) => async (
   if (!isStreamNarrow(narrow)) {
     return;
   }
+  const streamName = streamNameOfNarrow(narrow);
 
   const streams = getStreams(state);
-  const stream = streams.find(sub => narrow[0].operand === sub.name);
+  // TODO (#4333): Look for the stream by its ID, not its name.
+  const stream = streams.find(sub => streamName === sub.name);
   if (!stream) {
     return;
   }
@@ -46,7 +49,7 @@ export const deleteMessagesForTopic = (streamName: string, topic: string) => asy
   outbox.forEach((outboxMessage: Outbox) => {
     if (
       outboxMessage.type === 'stream'
-      && outboxMessage.display_recipient === streamName
+      && streamNameOfStreamMessage(outboxMessage) === streamName
       && outboxMessage.subject === topic
     ) {
       dispatch(deleteOutboxMessage(outboxMessage.id));

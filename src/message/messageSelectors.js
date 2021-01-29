@@ -1,7 +1,7 @@
 /* @flow strict-local */
 import { createSelector } from 'reselect';
 
-import type { Message, Narrow, RenderedSectionDescriptor, Selector } from '../types';
+import type { Message, Narrow, HtmlPieceDescriptor, Selector } from '../types';
 import {
   getAllNarrows,
   getFlags,
@@ -11,7 +11,7 @@ import {
 } from '../directSelectors';
 import * as logging from '../utils/logging';
 import { getShownMessagesForNarrow } from '../chat/narrowsSelectors';
-import renderMessages from './renderMessages';
+import getHtmlPieceDescriptors from './getHtmlPieceDescriptors';
 import type { JSONable } from '../utils/jsonable';
 import { ALL_PRIVATE_NARROW_STR } from '../utils/narrow';
 import { NULL_ARRAY } from '../nullObjects';
@@ -39,9 +39,9 @@ export const getPrivateMessages: Selector<Message[]> = createSelector(
     const privateMessages: Message[] = [];
     const unknownIds: number[] = [];
 
-    const pmIds = narrows[ALL_PRIVATE_NARROW_STR] || NULL_ARRAY;
+    const pmIds = narrows.get(ALL_PRIVATE_NARROW_STR) || NULL_ARRAY;
     pmIds.forEach(id => {
-      const msg = messages[id];
+      const msg = messages.get(id);
       if (msg !== undefined) {
         privateMessages.push(msg);
       } else {
@@ -61,10 +61,13 @@ export const getPrivateMessages: Selector<Message[]> = createSelector(
   },
 );
 
-export const getRenderedMessages: Selector<RenderedSectionDescriptor[], Narrow> = createSelector(
+export const getHtmlPieceDescriptorsForShownMessages: Selector<
+  HtmlPieceDescriptor[],
+  Narrow,
+> = createSelector(
   (state, narrow) => narrow,
   getShownMessagesForNarrow,
-  (narrow, messages) => renderMessages(messages, narrow),
+  (narrow, messages) => getHtmlPieceDescriptors(messages, narrow),
 );
 
 export const getFirstUnreadIdInNarrow: Selector<number | null, Narrow> = createSelector(

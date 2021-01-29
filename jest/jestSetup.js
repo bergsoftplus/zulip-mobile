@@ -1,6 +1,21 @@
 import * as ReactNative from 'react-native';
+import { polyfillGlobal } from 'react-native/Libraries/Utilities/PolyfillFunctions';
+import { URL, URLSearchParams } from 'react-native-url-polyfill';
 
 import mockAsyncStorage from '@react-native-community/async-storage/jest/async-storage-mock';
+
+// Use the same `URL` polyfill we do in the app.
+//
+// In the app we let `react-native-url-polyfill` handle doing this, by
+// importing `react-native-url-polyfill/auto`.  But in Jest, that produces
+// warnings apparently due to the lazy `require(…)` calls in the getters
+// provided for the polyfill; perhaps from them getting invoked by the Jest
+// framework after the test environment has been torn down.
+//   https://github.com/zulip/zulip-mobile/pull/4350#issuecomment-749247080
+// So we mimic the library's way of doing the polyfill, except we do the
+// imports eagerly so there's no dynamic `require`.
+polyfillGlobal('URL', () => URL);
+polyfillGlobal('URLSearchParams', () => URLSearchParams);
 
 // Mock `react-native` ourselves, following upstream advice [1] [2].
 //
@@ -101,3 +116,19 @@ jest.mock('react-native-image-picker', () => ({
   launchCamera: jest.fn(),
   launchImageLibrary: jest.fn(),
 }));
+
+// Set up our `logging` module with mocks, which tests can use as desired.
+//
+// This global version just passes the calls right through to the real
+// implementations.  To suppress logging in a specific test, make a call
+// like `logging.warn.mockReturnValue()`.  For more, see:
+//   https://jestjs.io/docs/en/mock-function-api
+// or search our code for `logging.warn.` for examples.
+jest.mock('../src/utils/logging', () => {
+  const logging = jest.requireActual('../src/utils/logging');
+  return {
+    __esModule: true, // eslint-disable-line id-match
+    error: jest.fn().mockImplementation(logging.error),
+    warn: jest.fn().mockImplementation(logging.warn),
+  };
+});

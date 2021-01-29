@@ -2,17 +2,19 @@
 
 import React, { PureComponent } from 'react';
 import { Linking, Platform } from 'react-native';
-import type { NavigationScreenProp } from 'react-navigation';
 import type { AppleAuthenticationCredential } from 'expo-apple-authentication';
 import * as AppleAuthentication from 'expo-apple-authentication';
 
-import config from '../config';
 import type {
-  AuthenticationMethods,
-  Dispatch,
-  ExternalAuthenticationMethod,
   ApiResponseServerSettings,
-} from '../types';
+  AuthenticationMethods,
+  ExternalAuthenticationMethod,
+} from '../api/settings/getServerSettings';
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import * as NavigationService from '../nav/NavigationService';
+import config from '../config';
+import type { Dispatch } from '../types';
 import {
   IconApple,
   IconPrivate,
@@ -29,7 +31,7 @@ import { getCurrentRealm } from '../selectors';
 import RealmInfo from './RealmInfo';
 import { encodeParamsForUrl } from '../utils/url';
 import * as webAuth from './webAuth';
-import { loginSuccess, navigateToDev, navigateToPassword } from '../actions';
+import { loginSuccess, navigateToDevAuth, navigateToPasswordAuth } from '../actions';
 import IosCompliantAppleAuthButton from './IosCompliantAppleAuthButton';
 import openLink from '../utils/openLink';
 
@@ -167,9 +169,11 @@ export const activeAuthentications = (
 };
 
 type Props = $ReadOnly<{|
+  navigation: AppNavigationProp<'auth'>,
+  route: RouteProp<'auth', {| serverSettings: ApiResponseServerSettings |}>,
+
   dispatch: Dispatch,
   realm: URL,
-  navigation: NavigationScreenProp<{ params: {| serverSettings: ApiResponseServerSettings |} }>,
 |}>;
 
 let otp = '';
@@ -195,7 +199,7 @@ class AuthScreen extends PureComponent<Props> {
       }
     });
 
-    const { serverSettings } = this.props.navigation.state.params;
+    const { serverSettings } = this.props.route.params;
     const authList = activeAuthentications(
       serverSettings.authentication_methods,
       serverSettings.external_authentication_methods,
@@ -231,12 +235,14 @@ class AuthScreen extends PureComponent<Props> {
   };
 
   handleDevAuth = () => {
-    this.props.dispatch(navigateToDev());
+    NavigationService.dispatch(navigateToDevAuth());
   };
 
   handlePassword = () => {
-    const { serverSettings } = this.props.navigation.state.params;
-    this.props.dispatch(navigateToPassword(serverSettings.require_email_format_usernames));
+    const { serverSettings } = this.props.route.params;
+    NavigationService.dispatch(
+      navigateToPasswordAuth(serverSettings.require_email_format_usernames),
+    );
   };
 
   handleNativeAppleAuth = async () => {
@@ -302,7 +308,7 @@ class AuthScreen extends PureComponent<Props> {
   };
 
   render() {
-    const { serverSettings } = this.props.navigation.state.params;
+    const { serverSettings } = this.props.route.params;
 
     return (
       <Screen title="Log in" centerContent padding shouldShowLoadingBanner={false}>

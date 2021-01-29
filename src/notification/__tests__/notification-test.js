@@ -1,22 +1,23 @@
 // @flow strict-local
 import deepFreeze from 'deep-freeze';
 
-import type { User } from '../../api/modelTypes';
+import type { Notification } from '../types';
+import type { UserOrBot } from '../../api/modelTypes';
 import type { JSONableDict } from '../../utils/jsonable';
 import { getNarrowFromNotificationData } from '..';
-import { topicNarrow, privateNarrow, groupNarrow } from '../../utils/narrow';
+import { topicNarrow, pm1to1NarrowFromUser, pmNarrowFromUsersUnsafe } from '../../utils/narrow';
 
 import * as eg from '../../__tests__/lib/exampleData';
 import { fromAPNsImpl as extractIosNotificationData } from '../extract';
 import objectEntries from '../../utils/objectEntries';
 
 describe('getNarrowFromNotificationData', () => {
-  const DEFAULT_MAP = new Map<number, User>();
+  const ownUserId = eg.selfUser.user_id;
 
   test('unknown notification data returns null', () => {
-    // $FlowFixMe: actually validate APNs messages
+    // $FlowFixMe[incompatible-type]: actually validate APNs messages
     const notification: Notification = {};
-    const narrow = getNarrowFromNotificationData(notification, DEFAULT_MAP);
+    const narrow = getNarrowFromNotificationData(notification, new Map(), ownUserId);
     expect(narrow).toBe(null);
   });
 
@@ -26,45 +27,35 @@ describe('getNarrowFromNotificationData', () => {
       stream: 'some stream',
       topic: 'some topic',
     };
-    const narrow = getNarrowFromNotificationData(notification, DEFAULT_MAP);
+    const narrow = getNarrowFromNotificationData(notification, new Map(), ownUserId);
     expect(narrow).toEqual(topicNarrow('some stream', 'some topic'));
   });
 
   test('on notification for a private message returns a PM narrow', () => {
+    const users = [eg.selfUser, eg.otherUser];
+    const allUsersByEmail: Map<string, UserOrBot> = new Map(users.map(u => [u.email, u]));
     const notification = {
       recipient_type: 'private',
-      sender_email: 'mark@example.com',
+      sender_email: eg.otherUser.email,
     };
-    const narrow = getNarrowFromNotificationData(notification, DEFAULT_MAP);
-    expect(narrow).toEqual(privateNarrow('mark@example.com'));
+    const narrow = getNarrowFromNotificationData(notification, allUsersByEmail, ownUserId);
+    expect(narrow).toEqual(pm1to1NarrowFromUser(eg.otherUser));
   });
 
   test('on notification for a group message returns a group narrow', () => {
-    const users = [eg.makeUser(), eg.makeUser(), eg.makeUser(), eg.makeUser()];
-    const usersById: Map<number, User> = new Map(users.map(u => [u.user_id, u]));
+    const users = [eg.selfUser, eg.makeUser(), eg.makeUser(), eg.makeUser()];
+    const allUsersByEmail: Map<string, UserOrBot> = new Map(users.map(u => [u.email, u]));
 
     const notification = {
       recipient_type: 'private',
       pm_users: users.map(u => u.user_id).join(','),
     };
 
-    const expectedNarrow = groupNarrow(users.map(u => u.email));
+    const expectedNarrow = pmNarrowFromUsersUnsafe(users.slice(1));
 
-    const narrow = getNarrowFromNotificationData(notification, usersById);
+    const narrow = getNarrowFromNotificationData(notification, allUsersByEmail, ownUserId);
 
     expect(narrow).toEqual(expectedNarrow);
-  });
-
-  test('do not throw when users are not found; return null', () => {
-    const notification = {
-      recipient_type: 'private',
-      pm_users: '1,2,4',
-    };
-    const usersById = new Map();
-
-    const narrow = getNarrowFromNotificationData(notification, usersById);
-
-    expect(narrow).toBe(null);
   });
 });
 

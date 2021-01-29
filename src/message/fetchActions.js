@@ -1,15 +1,10 @@
 /* @flow strict-local */
-import type {
-  Narrow,
-  Dispatch,
-  GetState,
-  GlobalState,
-  Message,
-  Action,
-  ApiResponseServerSettings,
-} from '../types';
+import * as NavigationService from '../nav/NavigationService';
+import type { Narrow, Dispatch, GetState, GlobalState, Message, Action, UserId } from '../types';
+import type { ApiResponseServerSettings } from '../api/settings/getServerSettings';
 import type { InitialData } from '../api/initialDataTypes';
 import * as api from '../api';
+import { resetToMainTabs } from '../actions';
 import { isClientError } from '../api/apiErrors';
 import {
   getAuth,
@@ -18,6 +13,7 @@ import {
   getLastMessageId,
   getCaughtUpForNarrow,
   getFetchingForNarrow,
+  getNavigationRoutes,
 } from '../selectors';
 import config from '../config';
 import {
@@ -28,7 +24,7 @@ import {
   MESSAGE_FETCH_COMPLETE,
 } from '../actionConstants';
 import { FIRST_UNREAD_ANCHOR, LAST_MESSAGE_ANCHOR } from '../anchor';
-import { ALL_PRIVATE_NARROW } from '../utils/narrow';
+import { ALL_PRIVATE_NARROW, apiNarrowOfNarrow } from '../utils/narrow';
 import { BackoffMachine } from '../utils/async';
 import { initNotifications } from '../notification/notificationActions';
 import { addToOutbox, sendOutbox } from '../outbox/outboxActions';
@@ -36,6 +32,8 @@ import { realmInit } from '../realm/realmActions';
 import { startEventPolling } from '../events/eventActions';
 import { logout } from '../account/accountActions';
 import { ZulipVersion } from '../utils/zulipVersion';
+import { getAllUsersById, getOwnUserId } from '../users/userSelectors';
+import { MIN_RECENTPMS_SERVER_VERSION } from '../pm-conversations/pmConversationsModel';
 
 const messageFetchStart = (narrow: Narrow, numBefore: number, numAfter: number): Action => ({
   type: MESSAGE_FETCH_START,
@@ -61,8 +59,18 @@ const messageFetchComplete = (args: {|
   numAfter: number,
   foundNewest?: boolean,
   foundOldest?: boolean,
+  ownUserId: UserId,
 |}): Action => {
-  const { messages, narrow, anchor, numBefore, numAfter, foundNewest, foundOldest } = args;
+  const {
+    messages,
+    narrow,
+    anchor,
+    numBefore,
+    numAfter,
+    foundNewest,
+    foundOldest,
+    ownUserId,
+  } = args;
   return {
     type: MESSAGE_FETCH_COMPLETE,
     messages,
@@ -72,6 +80,7 @@ const messageFetchComplete = (args: {|
     numAfter,
     foundNewest,
     foundOldest,
+    ownUserId,
   };
 };
 
@@ -92,6 +101,7 @@ export const fetchMessages = (fetchArgs: {|
   try {
     const { messages, found_newest, found_oldest } = await api.getMessages(getAuth(getState()), {
       ...fetchArgs,
+      narrow: apiNarrowOfNarrow(fetchArgs.narrow, getAllUsersById(getState())),
       useFirstUnread: fetchArgs.anchor === FIRST_UNREAD_ANCHOR, // TODO: don't use this; see #4203
     });
     dispatch(
@@ -100,6 +110,7 @@ export const fetchMessages = (fetchArgs: {|
         messages,
         foundNewest: found_newest,
         foundOldest: found_oldest,
+        ownUserId: getOwnUserId(getState()),
       }),
     );
     return messages;
@@ -156,9 +167,25 @@ const initialFetchStart = (): Action => ({
   type: INITIAL_FETCH_START,
 });
 
-const initialFetchComplete = (): Action => ({
+const initialFetchCompletePlain = (): Action => ({
   type: INITIAL_FETCH_COMPLETE,
 });
+
+export const initialFetchComplete = () => async (dispatch: Dispatch, getState: GetState) => {
+  if (!getNavigationRoutes().some(navigationRoute => navigationRoute.name === 'main')) {
+    // If we're anywhere in the normal UI of the app, then remain
+    // where we are. Only reset the nav state if we're elsewhere,
+    // and in that case, go to the main screen.
+    //
+    // TODO: "elsewhere" is probably just a way of saying "on the
+    // loading screen", but we're not sure. We could adjust the
+    // conditional accordingly, if we found out we're not depending on
+    // the more general condition; see
+    //   https://github.com/zulip/zulip-mobile/pull/4274#discussion_r505941875
+    NavigationService.dispatch(resetToMainTabs());
+  }
+  dispatch(initialFetchCompletePlain());
+};
 
 /** Private; exported only for tests. */
 export const isFetchNeededAtAnchor = (
@@ -213,17 +240,18 @@ export const fetchMessagesInNarrow = (
 /**
  * Fetch the few most recent PMs.
  *
- * We do this eagerly in `doInitialFetch`, where it mainly serves to let us
- * show something useful in the PM conversations screen.  Recent server
- * versions have a custom-made API to help us do this better, which we hope
- * to use soon: see #3133.
+ * For old servers, we do this eagerly in `doInitialFetch`, in order to
+ * let us show something useful in the PM conversations screen.
+ * Zulip Server 2.1 added a custom-made API to help us do this better;
+ * see #3133.
  *
  * See `fetchMessagesInNarrow` for further background.
  */
+// TODO(server-2.1): Delete this.
 const fetchPrivateMessages = () => async (dispatch: Dispatch, getState: GetState) => {
   const auth = getAuth(getState());
   const { messages, found_newest, found_oldest } = await api.getMessages(auth, {
-    narrow: ALL_PRIVATE_NARROW,
+    narrow: apiNarrowOfNarrow(ALL_PRIVATE_NARROW, getAllUsersById(getState())),
     anchor: LAST_MESSAGE_ANCHOR,
     numBefore: 100,
     numAfter: 0,
@@ -237,6 +265,7 @@ const fetchPrivateMessages = () => async (dispatch: Dispatch, getState: GetState
       numAfter: 0,
       foundNewest: found_newest,
       foundOldest: found_oldest,
+      ownUserId: getOwnUserId(getState()),
     }),
   );
 };
@@ -308,6 +337,7 @@ export const doInitialFetch = () => async (dispatch: Dispatch, getState: GetStat
           client_capabilities: {
             notification_settings_null: true,
             bulk_message_deletion: true,
+            user_avatar_url_field_optional: true,
           },
         }),
       ),
@@ -320,11 +350,14 @@ export const doInitialFetch = () => async (dispatch: Dispatch, getState: GetStat
     return;
   }
 
-  dispatch(realmInit(initData, new ZulipVersion(serverSettings.zulip_version)));
+  const serverVersion = new ZulipVersion(serverSettings.zulip_version);
+  dispatch(realmInit(initData, serverVersion));
   dispatch(initialFetchComplete());
   dispatch(startEventPolling(initData.queue_id, initData.last_event_id));
 
-  dispatch(fetchPrivateMessages());
+  if (!serverVersion.isAtLeast(MIN_RECENTPMS_SERVER_VERSION)) {
+    dispatch(fetchPrivateMessages());
+  }
 
   dispatch(sendOutbox());
   dispatch(initNotifications());

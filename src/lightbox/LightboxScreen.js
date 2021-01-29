@@ -1,13 +1,14 @@
 /* @flow strict-local */
-import React, { PureComponent } from 'react';
+import React from 'react';
 import { View } from 'react-native';
-import type { NavigationScreenProp } from 'react-navigation';
 import { ActionSheetProvider } from '@expo/react-native-action-sheet';
 
+import type { Message } from '../types';
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
 import { ZulipStatusBar } from '../common';
 import { createStyleSheet } from '../styles';
 import Lightbox from './Lightbox';
-import type { Message } from '../types';
 
 const styles = createStyleSheet({
   screen: {
@@ -19,19 +20,18 @@ const styles = createStyleSheet({
 });
 
 type Props = $ReadOnly<{|
-  navigation: NavigationScreenProp<{ params: {| src: string, message: Message |} }>,
+  navigation: AppNavigationProp<'lightbox'>,
+  route: RouteProp<'lightbox', {| src: string, message: Message |}>,
 |}>;
 
-export default class LightboxScreen extends PureComponent<Props> {
-  render() {
-    const { src, message } = this.props.navigation.state.params;
-    return (
-      <View style={styles.screen}>
-        <ZulipStatusBar hidden backgroundColor="black" />
-        <ActionSheetProvider>
-          <Lightbox src={src} message={message} />
-        </ActionSheetProvider>
-      </View>
-    );
-  }
+export default function LightboxScreen(props: Props) {
+  const { src, message } = props.route.params;
+  return (
+    <View style={styles.screen}>
+      <ZulipStatusBar hidden backgroundColor="black" />
+      <ActionSheetProvider>
+        <Lightbox src={src} message={message} />
+      </ActionSheetProvider>
+    </View>
+  );
 }

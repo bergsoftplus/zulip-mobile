@@ -1,8 +1,10 @@
 /* @flow strict-local */
 import React, { PureComponent } from 'react';
 
-import type { NavigationScreenProp } from 'react-navigation';
-import type { Auth, Dispatch, Stream, User } from '../types';
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import * as NavigationService from '../nav/NavigationService';
+import type { Auth, Dispatch, Stream, UserOrBot } from '../types';
 import { connect } from '../react-redux';
 import { Screen } from '../common';
 import { navigateBack } from '../actions';
@@ -16,7 +18,8 @@ type SelectorProps = $ReadOnly<{|
 |}>;
 
 type Props = $ReadOnly<{|
-  navigation: NavigationScreenProp<{ params: {| streamId: number |} }>,
+  navigation: AppNavigationProp<'invite-users'>,
+  route: RouteProp<'invite-users', {| streamId: number |}>,
 
   dispatch: Dispatch,
   ...SelectorProps,
@@ -33,12 +36,12 @@ class InviteUsersScreen extends PureComponent<Props, State> {
 
   handleFilterChange = (filter: string) => this.setState({ filter });
 
-  handleInviteUsers = (selected: User[]) => {
-    const { auth, dispatch, stream } = this.props;
+  handleInviteUsers = (selected: UserOrBot[]) => {
+    const { auth, stream } = this.props;
 
     const recipients = selected.map(user => user.email);
     api.subscriptionAdd(auth, [{ name: stream.name }], recipients);
-    dispatch(navigateBack());
+    NavigationService.dispatch(navigateBack());
   };
 
   render() {
@@ -53,5 +56,5 @@ class InviteUsersScreen extends PureComponent<Props, State> {
 
 export default connect<SelectorProps, _, _>((state, props) => ({
   auth: getAuth(state),
-  stream: getStreamForId(state, props.navigation.state.params.streamId),
+  stream: getStreamForId(state, props.route.params.streamId),
 }))(InviteUsersScreen);

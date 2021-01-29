@@ -2,16 +2,22 @@
 
 import React, { PureComponent } from 'react';
 
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import * as NavigationService from '../nav/NavigationService';
 import type { Dispatch } from '../types';
 import { connect } from '../react-redux';
 import { hasAuth, getAccountStatuses } from '../selectors';
 import type { AccountStatus } from './accountsSelectors';
 import { Centerer, ZulipButton, Logo, Screen, ViewPlaceholder } from '../common';
 import AccountList from './AccountList';
-import { navigateToRealmScreen, switchAccount, removeAccount } from '../actions';
+import { navigateToRealmInputScreen, accountSwitch, removeAccount } from '../actions';
 
 type Props = $ReadOnly<{|
-  accounts: AccountStatus[],
+  navigation: AppNavigationProp<'account-pick'>,
+  route: RouteProp<'account-pick', void>,
+
+  accounts: $ReadOnlyArray<AccountStatus>,
   dispatch: Dispatch,
   hasAuth: boolean,
 |}>;
@@ -22,10 +28,10 @@ class AccountPickScreen extends PureComponent<Props> {
     const { realm, isLoggedIn } = accounts[index];
     if (isLoggedIn) {
       setTimeout(() => {
-        dispatch(switchAccount(index));
+        dispatch(accountSwitch(index));
       });
     } else {
-      dispatch(navigateToRealmScreen(realm));
+      NavigationService.dispatch(navigateToRealmInputScreen({ realm }));
     }
   };
 
@@ -46,7 +52,7 @@ class AccountPickScreen extends PureComponent<Props> {
   canGoBack = this.props.hasAuth;
 
   render() {
-    const { accounts, dispatch } = this.props;
+    const { accounts } = this.props;
 
     return (
       <Screen
@@ -67,7 +73,7 @@ class AccountPickScreen extends PureComponent<Props> {
           <ZulipButton
             text="Add new account"
             onPress={() => {
-              dispatch(navigateToRealmScreen());
+              NavigationService.dispatch(navigateToRealmInputScreen());
             }}
           />
         </Centerer>

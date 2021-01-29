@@ -6,10 +6,11 @@ import type { GlobalState, GetState, Dispatch, Message } from '../types';
 import type { EventAction } from '../actionTypes';
 import { EVENT_NEW_MESSAGE, EVENT_TYPING_START } from '../actionConstants';
 import { isHomeNarrow, isMessageInNarrow } from '../utils/narrow';
-import { getActiveAccount, getChatScreenParams, getOwnEmail } from '../selectors';
+import { getActiveAccount, getChatScreenParams } from '../selectors';
 import { playMessageSound } from '../utils/sound';
 import { NULL_ARRAY } from '../nullObjects';
 import { ensureTypingStatusExpiryLoop } from '../typing/typingActions';
+import { getOwnUserId } from '../users/userSelectors';
 
 /**
  * React to incoming `MessageEvent`s.
@@ -21,20 +22,21 @@ const messageEvent = (state: GlobalState, message: Message): void => {
     return;
   }
 
-  const isPrivateMessage = Array.isArray(message.display_recipient);
   const isMentioned = flags.includes('mentioned') || flags.includes('wildcard_mentioned');
-  if (!(isPrivateMessage || isMentioned)) {
+  if (!(message.type === 'private' || isMentioned)) {
     return;
   }
 
   const activeAccount = getActiveAccount(state);
-  const { narrow } = getChatScreenParams(state);
+  // Assume (unchecked) that `narrow` is `Narrow` if present
+  // $FlowFixMe[cannot-resolve-name]
+  const narrow: Narrow | void = getChatScreenParams().narrow;
   const isUserInSameNarrow =
     activeAccount
     && narrow !== undefined // chat screen is not at top
     && !isHomeNarrow(narrow)
-    && isMessageInNarrow(message, narrow, activeAccount.email);
-  const isSenderSelf = getOwnEmail(state) === message.sender_email;
+    && isMessageInNarrow(message, flags, narrow, getOwnUserId(state));
+  const isSenderSelf = getOwnUserId(state) === message.sender_id;
   if (!isUserInSameNarrow && !isSenderSelf) {
     playMessageSound();
     // Vibration.vibrate();

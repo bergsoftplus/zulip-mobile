@@ -1,8 +1,11 @@
 /* @flow strict-local */
 import React from 'react';
 import { View, Image, ScrollView, BackHandler } from 'react-native';
-import { type NavigationNavigatorProps } from 'react-navigation';
-import type { Dispatch, SharedData, Subscription, Auth, GetText } from '../types';
+
+import type { SharingNavigationProp } from './SharingScreen';
+import type { RouteProp } from '../react-navigation';
+import * as NavigationService from '../nav/NavigationService';
+import type { Dispatch, Subscription, Auth, GetText, SharedData } from '../types';
 import { createStyleSheet } from '../styles';
 import { TranslationContext } from '../boot/TranslationProvider';
 import { connect } from '../react-redux';
@@ -41,7 +44,9 @@ const styles = createStyleSheet({
 });
 
 type Props = $ReadOnly<{|
-  ...$Exact<NavigationNavigatorProps<{||}, {| params: {| sharedData: SharedData |} |}>>,
+  navigation: SharingNavigationProp<'share-to-stream'>,
+  route: RouteProp<'share-to-stream', {| sharedData: SharedData |}>,
+
   dispatch: Dispatch,
   subscriptions: Map<number, Subscription>,
   auth: Auth,
@@ -63,7 +68,7 @@ class ShareToStream extends React.Component<Props, State> {
   state = {
     stream: '',
     topic: '',
-    message: this.props.navigation.state.params.sharedData.sharedText || '',
+    message: this.props.route.params.sharedData.sharedText || '',
     isStreamFocused: false,
     isTopicFocused: false,
     sending: false,
@@ -119,7 +124,7 @@ class ShareToStream extends React.Component<Props, State> {
     const _ = this.context;
     const { auth } = this.props;
     const { topic, stream, message } = this.state;
-    const { sharedData } = this.props.navigation.state.params;
+    const { sharedData } = this.props.route.params;
     const data = { stream, topic, message, sharedData, type: 'stream' };
 
     this.setSending();
@@ -128,15 +133,13 @@ class ShareToStream extends React.Component<Props, State> {
   };
 
   finishShare = () => {
-    const { dispatch } = this.props;
-
-    dispatch(navigateBack());
+    NavigationService.dispatch(navigateBack());
     BackHandler.exitApp();
   };
 
   isSendButtonEnabled = () => {
     const { stream, topic, message } = this.state;
-    const { sharedData } = this.props.navigation.state.params;
+    const { sharedData } = this.props.route.params;
 
     if (sharedData.type !== 'text') {
       return stream !== '' && topic !== '';
@@ -146,7 +149,7 @@ class ShareToStream extends React.Component<Props, State> {
   };
 
   render() {
-    const { sharedData } = this.props.navigation.state.params;
+    const { sharedData } = this.props.route.params;
     const { stream, topic, message, isStreamFocused, isTopicFocused, sending } = this.state;
     const narrow = streamNarrow(stream);
 
@@ -155,12 +158,7 @@ class ShareToStream extends React.Component<Props, State> {
         <ScrollView style={styles.wrapper} keyboardShouldPersistTaps="always">
           <View style={styles.container}>
             {sharedData.type === 'image' && (
-              <Image
-                source={{ uri: sharedData.sharedImageUrl }}
-                width={200}
-                height={200}
-                style={styles.imagePreview}
-              />
+              <Image source={{ uri: sharedData.sharedImageUrl }} style={styles.imagePreview} />
             )}
             <AnimatedScaleComponent visible={isStreamFocused}>
               <StreamAutocomplete filter={stream} onAutocomplete={this.handleStreamAutoComplete} />

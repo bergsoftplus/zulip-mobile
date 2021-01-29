@@ -1,4 +1,6 @@
 /* @flow strict-local */
+import Immutable from 'immutable';
+
 import {
   getFirstMessageId,
   getLastMessageId,
@@ -9,50 +11,49 @@ import {
 import {
   HOME_NARROW,
   HOME_NARROW_STR,
-  privateNarrow,
+  pm1to1NarrowFromUser,
   streamNarrow,
   topicNarrow,
   STARRED_NARROW,
-  groupNarrow,
+  pmNarrowFromUsersUnsafe,
+  keyFromNarrow,
 } from '../../utils/narrow';
 import { NULL_SUBSCRIPTION } from '../../nullObjects';
 import * as eg from '../../__tests__/lib/exampleData';
 
 describe('getMessagesForNarrow', () => {
   const message = eg.streamMessage({ id: 123 });
-  const messages = {
-    // Flow doesn't like number literals as keys...but it also wants
-    // them to be numbers.
-    [123]: message /* eslint-disable-line no-useless-computed-key */,
-  };
-  const outboxMessage = eg.makeOutboxMessage({
-    narrow: HOME_NARROW,
-  });
+  const messages = eg.makeMessagesState([message]);
+  const outboxMessage = eg.makeOutboxMessage({});
 
   test('if no outbox messages returns messages with no change', () => {
     const state = eg.reduxState({
-      narrows: {
-        '[]': [123],
-      },
+      narrows: Immutable.Map({
+        [HOME_NARROW_STR]: [123],
+      }),
       messages,
       outbox: [],
+      users: [eg.selfUser],
+      realm: eg.realmState({ user_id: eg.selfUser.user_id, email: eg.selfUser.email }),
     });
 
     const result = getMessagesForNarrow(state, HOME_NARROW);
 
-    expect(result).toEqual([state.messages[123]]);
+    expect(result).toEqual([state.messages.get(123)]);
   });
 
   test('combine messages and outbox in same narrow', () => {
     const state = eg.reduxState({
-      narrows: {
-        '[]': [123],
-      },
+      narrows: Immutable.Map({
+        [HOME_NARROW_STR]: [123],
+      }),
       messages,
       outbox: [outboxMessage],
       caughtUp: {
         [HOME_NARROW_STR]: { older: false, newer: true },
       },
+      users: [eg.selfUser],
+      realm: eg.realmState({ user_id: eg.selfUser.user_id, email: eg.selfUser.email }),
     });
 
     const result = getMessagesForNarrow(state, HOME_NARROW);
@@ -62,28 +63,32 @@ describe('getMessagesForNarrow', () => {
 
   test('do not combine messages and outbox if not caught up', () => {
     const state = eg.reduxState({
-      narrows: {
+      narrows: Immutable.Map({
         [HOME_NARROW_STR]: [123],
-      },
+      }),
       messages,
       outbox: [outboxMessage],
+      users: [eg.selfUser],
+      realm: eg.realmState({ user_id: eg.selfUser.user_id, email: eg.selfUser.email }),
     });
 
     const result = getMessagesForNarrow(state, HOME_NARROW);
 
-    expect(result).toEqual([state.messages[123]]);
+    expect(result).toEqual([state.messages.get(123)]);
   });
 
   test('do not combine messages and outbox in different narrow', () => {
     const state = eg.reduxState({
-      narrows: {
-        [JSON.stringify(privateNarrow('john@example.com'))]: [123],
-      },
+      narrows: Immutable.Map({
+        [keyFromNarrow(pm1to1NarrowFromUser(eg.otherUser))]: [123],
+      }),
       messages,
-      outbox: [{ ...outboxMessage, narrow: streamNarrow('denmark') }],
+      outbox: [outboxMessage],
+      users: [eg.selfUser],
+      realm: eg.realmState({ user_id: eg.selfUser.user_id, email: eg.selfUser.email }),
     });
 
-    const result = getMessagesForNarrow(state, privateNarrow('john@example.com'));
+    const result = getMessagesForNarrow(state, pm1to1NarrowFromUser(eg.otherUser));
 
     expect(result).toEqual([message]);
   });
@@ -92,9 +97,9 @@ describe('getMessagesForNarrow', () => {
 describe('getFirstMessageId', () => {
   test('return undefined when there are no messages', () => {
     const state = eg.reduxState({
-      narrows: {
-        '[]': [],
-      },
+      narrows: Immutable.Map({
+        [HOME_NARROW_STR]: [],
+      }),
       outbox: [],
     });
 
@@ -105,14 +110,14 @@ describe('getFirstMessageId', () => {
 
   test('returns first message id', () => {
     const state = eg.reduxState({
-      narrows: {
-        '[]': [1, 2, 3],
-      },
-      messages: {
-        [1]: eg.streamMessage({ id: 1 }) /* eslint-disable-line no-useless-computed-key */,
-        [2]: eg.streamMessage({ id: 2 }) /* eslint-disable-line no-useless-computed-key */,
-        [3]: eg.streamMessage({ id: 3 }) /* eslint-disable-line no-useless-computed-key */,
-      },
+      narrows: Immutable.Map({
+        [HOME_NARROW_STR]: [1, 2, 3],
+      }),
+      messages: eg.makeMessagesState([
+        eg.streamMessage({ id: 1 }),
+        eg.streamMessage({ id: 2 }),
+        eg.streamMessage({ id: 3 }),
+      ]),
       outbox: [],
     });
 
@@ -125,10 +130,10 @@ describe('getFirstMessageId', () => {
 describe('getLastMessageId', () => {
   test('return undefined when there are no messages', () => {
     const state = eg.reduxState({
-      narrows: {
-        '[]': [],
-      },
-      messages: {},
+      narrows: Immutable.Map({
+        [HOME_NARROW_STR]: [],
+      }),
+      messages: eg.makeMessagesState([]),
       outbox: [],
     });
 
@@ -139,14 +144,14 @@ describe('getLastMessageId', () => {
 
   test('returns last message id', () => {
     const state = eg.reduxState({
-      narrows: {
-        '[]': [1, 2, 3],
-      },
-      messages: {
-        [1]: eg.streamMessage({ id: 1 }) /* eslint-disable-line no-useless-computed-key */,
-        [2]: eg.streamMessage({ id: 2 }) /* eslint-disable-line no-useless-computed-key */,
-        [3]: eg.streamMessage({ id: 3 }) /* eslint-disable-line no-useless-computed-key */,
-      },
+      narrows: Immutable.Map({
+        [HOME_NARROW_STR]: [1, 2, 3],
+      }),
+      messages: eg.makeMessagesState([
+        eg.streamMessage({ id: 1 }),
+        eg.streamMessage({ id: 2 }),
+        eg.streamMessage({ id: 3 }),
+      ]),
       outbox: [],
     });
 
@@ -188,7 +193,7 @@ describe('getStreamInNarrow', () => {
   });
 
   test('return NULL_SUBSCRIPTION is narrow is not topic or stream', () => {
-    expect(getStreamInNarrow(state, privateNarrow('abc@zulip.com'))).toEqual(NULL_SUBSCRIPTION);
+    expect(getStreamInNarrow(state, pm1to1NarrowFromUser(eg.otherUser))).toEqual(NULL_SUBSCRIPTION);
     expect(getStreamInNarrow(state, topicNarrow(stream4.name, 'topic'))).toEqual(NULL_SUBSCRIPTION);
   });
 });
@@ -251,7 +256,7 @@ describe('isNarrowValid', () => {
       streams: [],
       users: [user],
     });
-    const narrow = privateNarrow(user.email);
+    const narrow = pm1to1NarrowFromUser(user);
 
     const result = isNarrowValid(state, narrow);
 
@@ -269,14 +274,14 @@ describe('isNarrowValid', () => {
       streams: [],
       users: [],
     });
-    const narrow = privateNarrow(user.email);
+    const narrow = pm1to1NarrowFromUser(user);
 
     const result = isNarrowValid(state, narrow);
 
     expect(result).toBe(false);
   });
 
-  test('narrowing to a group chat with non-existing user is not valid', () => {
+  test('narrowing to a group chat with existing users is valid', () => {
     const john = eg.makeUser({ name: 'john' });
     const mark = eg.makeUser({ name: 'mark' });
 
@@ -289,14 +294,16 @@ describe('isNarrowValid', () => {
       streams: [],
       users: [john, mark],
     });
-    const narrow = groupNarrow([john.email, mark.email]);
+    const narrow = pmNarrowFromUsersUnsafe([john, mark]);
 
     const result = isNarrowValid(state, narrow);
 
     expect(result).toBe(true);
   });
 
-  test('narrowing to a group chat with non-existing users is also valid', () => {
+  test('narrowing to a group chat with non-existing users is not valid', () => {
+    const john = eg.makeUser({ name: 'john' });
+    const mark = eg.makeUser({ name: 'mark' });
     const state = eg.reduxState({
       realm: {
         ...eg.realmState(),
@@ -304,13 +311,13 @@ describe('isNarrowValid', () => {
         nonActiveUsers: [],
       },
       streams: [],
-      users: [],
+      users: [john],
     });
-    const narrow = groupNarrow(['john@example.com', 'mark@example.com']);
+    const narrow = pmNarrowFromUsersUnsafe([john, mark]);
 
     const result = isNarrowValid(state, narrow);
 
-    expect(result).toBe(true);
+    expect(result).toBe(false);
   });
 
   test('narrowing to a PM with bots is valid', () => {
@@ -324,7 +331,7 @@ describe('isNarrowValid', () => {
       streams: [],
       users: [],
     });
-    const narrow = privateNarrow(bot.email);
+    const narrow = pm1to1NarrowFromUser(bot);
 
     const result = isNarrowValid(state, narrow);
 
@@ -342,7 +349,7 @@ describe('isNarrowValid', () => {
       streams: [],
       users: [],
     });
-    const narrow = privateNarrow(notActiveUser.email);
+    const narrow = pm1to1NarrowFromUser(notActiveUser);
 
     const result = isNarrowValid(state, narrow);
 

@@ -3,6 +3,8 @@
 import React, { PureComponent } from 'react';
 import { View } from 'react-native';
 
+import type { RouteProp } from '../react-navigation';
+import type { StreamTabsNavigationProp } from '../main/StreamTabsScreen';
 import type { Dispatch, Subscription } from '../types';
 import { createStyleSheet } from '../styles';
 import { connect } from '../react-redux';
@@ -26,6 +28,9 @@ type SelectorProps = $ReadOnly<{|
 |}>;
 
 type Props = $ReadOnly<{|
+  navigation: StreamTabsNavigationProp<'subscribed'>,
+  route: RouteProp<'subscribed', void>,
+
   dispatch: Dispatch,
   ...SelectorProps,
 |}>;

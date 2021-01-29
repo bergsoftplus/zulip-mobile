@@ -3,22 +3,32 @@
 import React, { PureComponent } from 'react';
 import { connect } from 'react-redux';
 
-import type { Auth, Stream, Dispatch, Narrow, UserOrBot, Subscription, GetText } from '../types';
+import type {
+  Auth,
+  Stream,
+  Dispatch,
+  Narrow,
+  UserOrBot,
+  Subscription,
+  GetText,
+  UserId,
+} from '../types';
 import { TranslationContext } from '../boot/TranslationProvider';
-import { getActiveUsersById, getAuth } from '../selectors';
-import { isPrivateNarrow } from '../utils/narrow';
+import { getAllUsersById, getAuth } from '../selectors';
+import { is1to1PmNarrow } from '../utils/narrow';
 import * as api from '../api';
 import { showToast } from '../utils/info';
 
 import MentionedUserNotSubscribed from '../message/MentionedUserNotSubscribed';
+import { makeUserId } from '../api/idTypes';
 
 type State = {|
-  unsubscribedMentions: Array<number>,
+  unsubscribedMentions: Array<UserId>,
 |};
 
 type SelectorProps = {|
   auth: Auth,
-  usersById: Map<number, UserOrBot>,
+  allUsersById: Map<UserId, UserOrBot>,
 |};
 
 type Props = $ReadOnly<{|
@@ -44,7 +54,7 @@ class MentionWarnings extends PureComponent<Props, State> {
       See JSDoc for AutoCompleteView for details.
    */
   getUserFromMention = (completion: string): UserOrBot | void => {
-    const { usersById } = this.props;
+    const { allUsersById } = this.props;
 
     const unformattedMessage = completion.split('**')[1];
     const [userFullName, userIdRaw] = unformattedMessage.split('|');
@@ -57,11 +67,11 @@ class MentionWarnings extends PureComponent<Props, State> {
     }
 
     if (userIdRaw !== undefined) {
-      const userId = Number.parseInt(userIdRaw, 10);
-      return usersById.get(userId);
+      const userId = makeUserId(Number.parseInt(userIdRaw, 10));
+      return allUsersById.get(userId);
     }
 
-    for (const user of usersById.values()) {
+    for (const user of allUsersById.values()) {
       if (user.full_name === userFullName) {
         return user;
       }
@@ -73,7 +83,7 @@ class MentionWarnings extends PureComponent<Props, State> {
   showSubscriptionStatusLoadError = (mentionedUser: UserOrBot) => {
     const _ = this.context;
 
-    const alertTitle = _("Couldn't load information about {fullName}", {
+    const alertTitle = _('Couldn’t load information about {fullName}', {
       fullName: mentionedUser.full_name,
     });
     showToast(alertTitle);
@@ -94,7 +104,7 @@ class MentionWarnings extends PureComponent<Props, State> {
     const { narrow, auth, stream } = this.props;
     const { unsubscribedMentions } = this.state;
 
-    if (isPrivateNarrow(narrow)) {
+    if (is1to1PmNarrow(narrow)) {
       return;
     }
     const mentionedUser = this.getUserFromMention(completion);
@@ -123,9 +133,7 @@ class MentionWarnings extends PureComponent<Props, State> {
 
   handleMentionWarningDismiss = (user: UserOrBot) => {
     this.setState(prevState => ({
-      unsubscribedMentions: prevState.unsubscribedMentions.filter(
-        (x: number) => x !== user.user_id,
-      ),
+      unsubscribedMentions: prevState.unsubscribedMentions.filter(x => x !== user.user_id),
     }));
   };
 
@@ -137,15 +145,15 @@ class MentionWarnings extends PureComponent<Props, State> {
 
   render() {
     const { unsubscribedMentions } = this.state;
-    const { stream, narrow, usersById } = this.props;
+    const { stream, narrow, allUsersById } = this.props;
 
-    if (isPrivateNarrow(narrow)) {
+    if (is1to1PmNarrow(narrow)) {
       return null;
     }
 
     const mentionWarnings = [];
     for (const userId of unsubscribedMentions) {
-      const user = usersById.get(userId);
+      const user = allUsersById.get(userId);
 
       if (user === undefined) {
         continue;
@@ -165,11 +173,11 @@ class MentionWarnings extends PureComponent<Props, State> {
   }
 }
 
-// $FlowFixMe. TODO: Use a type checked connect call.
+// $FlowFixMe[missing-annot]. TODO: Use a type checked connect call.
 export default connect(
   state => ({
     auth: getAuth(state),
-    usersById: getActiveUsersById(state),
+    allUsersById: getAllUsersById(state),
   }),
   null,
   null,

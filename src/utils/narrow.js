@@ -1,81 +1,159 @@
 /* @flow strict-local */
-import isEqual from 'lodash.isequal';
-import unescape from 'lodash.unescape';
 
-import type { Narrow, Message, Outbox } from '../types';
-import { normalizeRecipients } from './recipient';
+import { makeUserId } from '../api/idTypes';
+import type { ApiNarrow, Message, Outbox, UserId, UserOrBot } from '../types';
+import {
+  normalizeRecipientsAsUserIdsSansMe,
+  pmKeyRecipientsFromMessage,
+  recipientsOfPrivateMessage,
+  streamNameOfStreamMessage,
+  type PmKeyRecipients,
+  type PmKeyUsers,
+} from './recipient';
 
-export const isSameNarrow = (narrow1: Narrow, narrow2: Narrow): boolean =>
-  Array.isArray(narrow1) && Array.isArray(narrow2) && isEqual(narrow1, narrow2);
+/* eslint-disable no-use-before-define */
 
-export const parseNarrowString = (narrowStr: string): Narrow => JSON.parse(unescape(narrowStr));
+/**
+ * A narrow.
+ *
+ * A narrow is the navigational property that defines what to show in the
+ * message list UI: it's a subset of messages which might be a conversation,
+ * a whole stream, a search, or a few other varieties.
+ *
+ * Much of the data we fetch is to support the message list UI, and so we
+ * keep much of it in data structures indexed by narrow.
+ *
+ * See also:
+ *  * `keyFromNarrow`, for converting into a string key good for indexing
+ *    into a data structure;
+ *  * `caseNarrow` and its relatives, for pattern-matching or destructuring;
+ *  * `ApiNarrow` for the form we put a narrow in when talking to the
+ *    server, and `apiNarrowOfNarrow` for converting to it.
+ */
+export opaque type Narrow =
+  | {| type: 'stream', streamName: string |}
+  | {| type: 'topic', streamName: string, topic: string |}
+  | {| type: 'pm', userIds: $ReadOnlyArray<UserId> |}
+  | {| type: 'search', query: string |}
+  | {| type: 'all' | 'starred' | 'mentioned' | 'all-pm' |};
 
-export const HOME_NARROW: Narrow = [];
+export const HOME_NARROW: Narrow = Object.freeze({ type: 'all' });
 
-export const HOME_NARROW_STR: string = '[]';
+export const HOME_NARROW_STR: string = keyFromNarrow(HOME_NARROW);
 
-export const privateNarrow = (email: string): Narrow => [
-  {
-    operator: 'pm-with',
-    operand: email,
-  },
-];
+/**
+ * A PM narrow, either 1:1 or group.
+ *
+ * The list of users represented in `emails` must agree with what
+ * `pmKeyRecipientsFromMessage` would return.  Effectively this means:
+ *  * it actually comes from `pmKeyRecipientsFromMessage`, or one of its
+ *    relatives in `src/utils/recipient.js`;
+ *  * or it's a singleton list, which those would always be a no-op on.
+ *
+ * We enforce this by keeping this constructor private to this module, and
+ * only calling it from higher-level constructors whose input types enforce
+ * one of these conditions or the other.  (Well, and one more which is only
+ * to be used in test code.)
+ *
+ * In the past, before this was checked and before it was done consistently,
+ * we had quite a lot of bugs due to different parts of our code
+ * accidentally disagreeing on whether to include the self-user, or on how
+ * to sort the list (by user ID vs. email), or neglecting to sort it at all.
+ */
+const pmNarrowInternal = (userIds: $ReadOnlyArray<UserId>): Narrow =>
+  Object.freeze({ type: 'pm', userIds });
 
-export const groupNarrow = (emails: string[]): Narrow => [
-  {
-    operator: 'pm-with',
-    operand: emails.join(),
-  },
-];
+/**
+ * A PM narrow, either 1:1 or group.
+ *
+ * The argument's type guarantees that it comes from
+ * `pmKeyRecipientsFromMessage` or one of its related functions.  This
+ * ensures that we've properly either removed the self user, or not.
+ *
+ * See also `pmNarrowFromUsers`, which does the same thing with a slightly
+ * different form of input.
+ */
+export const pmNarrowFromRecipients = (recipients: PmKeyRecipients): Narrow =>
+  pmNarrowInternal(recipients);
 
-export const specialNarrow = (operand: string): Narrow => [
-  {
-    operator: 'is',
-    operand,
-  },
-];
+/**
+ * A PM narrow, either 1:1 or group.
+ *
+ * This is just like `pmNarrowFromRecipients`, but taking a slightly
+ * different form of input.  Use whichever one is more convenient.
+ *
+ * See also `pm1to1NarrowFromUser`, which is more convenient when you have a
+ * single specific user.
+ */
+export const pmNarrowFromUsers = (recipients: PmKeyUsers): Narrow =>
+  pmNarrowInternal(recipients.map(r => r.user_id));
+
+/**
+ * FOR TESTS ONLY.  Like pmNarrowFromUsers, but without validation.
+ *
+ * This exists purely for convenience in tests. Unlike the other Narrow
+ * constructors, its type does not require the argument to have come from a
+ * function that applies our "maybe filter out self" convention.  The caller
+ * is still required to do so, but nothing checks this.
+ *
+ * Outside of tests, always use pmNarrowFromUsers instead.  Use
+ * pmKeyRecipientsFromUsers, along with an ownUserId value, to produce the
+ * needed input.
+ *
+ * This does take care of sorting the input as needed.
+ */
+// It'd be fine for test data to go through the usual filtering logic; the
+// annoying thing is just that that requires an ownUserId value.
+export const pmNarrowFromUsersUnsafe = (recipients: UserOrBot[]): Narrow => {
+  recipients.sort((a, b) => a.user_id - b.user_id);
+  return pmNarrowInternal(recipients.map(r => r.user_id));
+};
+
+/**
+ * A 1:1 PM narrow, possibly with self.
+ *
+ * This has the same effect as calling pmNarrowFromUsers, but for code that
+ * statically has just one other user it's a bit more convenient because it
+ * doesn't require going through our `recipient` helpers.
+ */
+export const pm1to1NarrowFromUser = (user: UserOrBot): Narrow => pmNarrowInternal([user.user_id]);
+
+export const specialNarrow = (operand: string): Narrow => {
+  if (operand === 'starred') {
+    return Object.freeze({ type: 'starred' });
+  }
+  if (operand === 'mentioned') {
+    return Object.freeze({ type: 'mentioned' });
+  }
+  if (operand === 'private') {
+    return Object.freeze({ type: 'all-pm' });
+  }
+  throw new Error(`specialNarrow: got unsupported operand: ${operand}`);
+};
 
 export const STARRED_NARROW = specialNarrow('starred');
 
-export const STARRED_NARROW_STR = JSON.stringify(STARRED_NARROW);
+export const STARRED_NARROW_STR = keyFromNarrow(STARRED_NARROW);
 
 export const MENTIONED_NARROW = specialNarrow('mentioned');
 
-export const MENTIONED_NARROW_STR = JSON.stringify(MENTIONED_NARROW);
+export const MENTIONED_NARROW_STR = keyFromNarrow(MENTIONED_NARROW);
 
 export const ALL_PRIVATE_NARROW = specialNarrow('private');
 
-export const ALL_PRIVATE_NARROW_STR = JSON.stringify(ALL_PRIVATE_NARROW);
+export const ALL_PRIVATE_NARROW_STR = keyFromNarrow(ALL_PRIVATE_NARROW);
 
-export const streamNarrow = (stream: string): Narrow => [
-  {
-    operator: 'stream',
-    operand: stream,
-  },
-];
+export const streamNarrow = (stream: string): Narrow =>
+  Object.freeze({ type: 'stream', streamName: stream });
 
-export const topicNarrow = (stream: string, topic: string): Narrow => [
-  {
-    operator: 'stream',
-    operand: stream,
-  },
-  {
-    operator: 'topic',
-    operand: topic,
-  },
-];
+export const topicNarrow = (stream: string, topic: string): Narrow =>
+  Object.freeze({ type: 'topic', streamName: stream, topic });
 
-export const SEARCH_NARROW = (query: string): Narrow => [
-  {
-    operator: 'search',
-    operand: query,
-  },
-];
+export const SEARCH_NARROW = (query: string): Narrow => Object.freeze({ type: 'search', query });
 
 type NarrowCases<T> = {|
   home: () => T,
-  pm: (email: string) => T,
-  groupPm: (emails: string[]) => T,
+  pm: (ids: $ReadOnlyArray<UserId>) => T,
   starred: () => T,
   mentioned: () => T,
   allPrivate: () => T,
@@ -90,36 +168,22 @@ export function caseNarrow<T>(narrow: Narrow, cases: NarrowCases<T>): T {
     throw new Error(`bad narrow: ${JSON.stringify(narrow)}`);
   };
 
-  switch (narrow.length) {
-    case 0: return cases.home();
-    case 1:
-      switch (narrow[0].operator) {
-        case 'pm-with':
-          if (narrow[0].operand.indexOf(',') < 0) {
-            return cases.pm(narrow[0].operand);
-          } else { /* eslint-disable-line */
-            const emails = narrow[0].operand.split(',');
-            return cases.groupPm(emails);
-          }
-        case 'is':
-          switch (narrow[0].operand) {
-            case 'starred': return cases.starred();
-            case 'mentioned': return cases.mentioned();
-            case 'private': return cases.allPrivate();
-            default: return err();
-          }
-        case 'stream': return cases.stream(narrow[0].operand);
-        case 'search': return cases.search(narrow[0].operand);
-        default: return err();
-      }
-    case 2: return cases.topic(narrow[0].operand, narrow[1].operand);
+  switch (narrow.type) {
+    case 'stream': return cases.stream(narrow.streamName);
+    case 'topic': return cases.topic(narrow.streamName, narrow.topic);
+    case 'pm': return cases.pm(narrow.userIds);
+    case 'search': return cases.search(narrow.query);
+    case 'all': return cases.home();
+    case 'starred': return cases.starred();
+    case 'mentioned': return cases.mentioned();
+    case 'all-pm': return cases.allPrivate();
     default: return err();
   }
 }
 
 export function caseNarrowPartial<T>(narrow: Narrow, cases: $Shape<NarrowCases<T>>): T {
   const err = (type: string) => (): empty => {
-    throw new Error(`unexpected ${type} narrow: ${JSON.stringify(narrow)}`);
+    throw new Error(`unexpected ${type} narrow: ${keyFromNarrow(narrow)}`);
   };
   return caseNarrow(
     narrow,
@@ -127,7 +191,6 @@ export function caseNarrowPartial<T>(narrow: Narrow, cases: $Shape<NarrowCases<T
       ({
         home: err('home'),
         pm: err('PM'),
-        groupPm: err('group PM'),
         starred: err('starred'),
         mentioned: err('mentions'),
         allPrivate: err('all-private'),
@@ -151,7 +214,6 @@ export function caseNarrowDefault<T>(
       ({
         home: defaultCase,
         pm: defaultCase,
-        groupPm: defaultCase,
         starred: defaultCase,
         mentioned: defaultCase,
         allPrivate: defaultCase,
@@ -164,26 +226,143 @@ export function caseNarrowDefault<T>(
   );
 }
 
+/**
+ * The key we use for this narrow in our Redux data structures.
+ *
+ * See in particular `NarrowsState`, `CaughtUpState`, `FetchingState`,
+ * and `DraftsState`.
+ *
+ * The key may contain arbitrary Unicode codepoints.  If passing through a
+ * channel (like an HTML attribute) that only allows certain codepoints, use
+ * something like `base64Utf8Encode` to encode into the permitted subset.
+ */
+// The arbitrary Unicode codepoints come from (a) stream names and topics,
+// and (b) our use of `\x00` as a delimiter.
+export function keyFromNarrow(narrow: Narrow): string {
+  // The ":s" (for "string") in several of these is to keep them disjoint,
+  // out of an abundance of caution, from future keys that use numeric IDs.
+  //
+  // Similarly, ":d" ("dual") marks those with both numeric IDs and strings.
+  return caseNarrow(narrow, {
+    // NB if you're changing any of these: be sure to do a migration.
+    // Take a close look at migration 19 and any later related migrations.
+
+    stream: name => `stream:s:${name}`,
+    // '\x00' is the one character not allowed in Zulip stream names.
+    // (See `check_stream_name` in zulip.git:zerver/lib/streams.py.)
+    topic: (streamName, topic) => `topic:s:${streamName}\x00${topic}`,
+
+    // An earlier version had `pm:s:`.
+    // Another had `pm:d:`.
+    pm: ids => `pm:${ids.join(',')}`,
+
+    home: () => 'all',
+    starred: () => 'starred',
+    mentioned: () => 'mentioned',
+    allPrivate: () => 'all-pm',
+    search: query => `search:${query}`,
+  });
+}
+
+/**
+ * Parse a narrow previously encoded with keyFromNarrow.
+ */
+export const parseNarrow = (narrowStr: string): Narrow => {
+  const makeError = () => new Error('parseNarrow: bad narrow');
+
+  const tag = /^.*?(?::|$)/.exec(narrowStr)?.[0] ?? '';
+  const rest = narrowStr.substr(tag.length);
+  // invariant: tag + rest === narrowStr
+  switch (tag) {
+    case 'stream:': {
+      if (!rest.startsWith('s:')) {
+        throw makeError();
+      }
+      const name = rest.substr('s:'.length);
+      return streamNarrow(name);
+    }
+
+    case 'topic:': {
+      // The `/s` regexp flag means the `.` patterns match absolutely
+      // anything.  By default they reject certain "newline" characters,
+      // which in principle could appear in stream names or topics.
+      // eslint-disable-next-line no-control-regex
+      const match = /^s:(.*?)\x00(.*)/s.exec(rest);
+      if (!match) {
+        throw makeError();
+      }
+      return topicNarrow(match[1], match[2]);
+    }
+
+    case 'pm:': {
+      const ids = rest.split(',').map(s => makeUserId(Number.parseInt(s, 10)));
+      return pmNarrowInternal(ids);
+    }
+
+    case 'search:': {
+      return SEARCH_NARROW(rest);
+    }
+
+    default:
+      if (rest !== '') {
+        throw makeError();
+      }
+
+      switch (tag) {
+        case 'all':
+          return HOME_NARROW;
+        case 'starred':
+          return STARRED_NARROW;
+        case 'mentioned':
+          return MENTIONED_NARROW;
+        case 'all-pm':
+          return ALL_PRIVATE_NARROW;
+        default:
+          throw makeError();
+      }
+  }
+};
+
 export const isHomeNarrow = (narrow?: Narrow): boolean =>
   !!narrow && caseNarrowDefault(narrow, { home: () => true }, () => false);
 
-export const isPrivateNarrow = (narrow?: Narrow): boolean =>
-  !!narrow && caseNarrowDefault(narrow, { pm: () => true }, () => false);
+export const is1to1PmNarrow = (narrow?: Narrow): boolean =>
+  !!narrow && caseNarrowDefault(narrow, { pm: ids => ids.length === 1 }, () => false);
 
-export const isGroupNarrow = (narrow?: Narrow): boolean =>
-  !!narrow && caseNarrowDefault(narrow, { groupPm: () => true }, () => false);
+export const isGroupPmNarrow = (narrow?: Narrow): boolean =>
+  !!narrow && caseNarrowDefault(narrow, { pm: ids => ids.length > 1 }, () => false);
 
 /**
- * The recipients' emails if a group PM narrow; else error.
+ * The "PM key recipients" IDs for a PM narrow; else error.
  *
- * Any use of this probably means something higher up should be refactored
- * to use caseNarrow.
+ * This is the same list of users that can appear in a `PmKeyRecipients` or
+ * `PmKeyUsers`, but contains only their user IDs.
  */
-export const emailsOfGroupNarrow = (narrow: Narrow): string[] =>
-  caseNarrowPartial(narrow, { groupPm: emails => emails });
+export const userIdsOfPmNarrow = (narrow: Narrow): $ReadOnlyArray<UserId> =>
+  caseNarrowPartial(narrow, { pm: ids => ids });
 
-export const isPrivateOrGroupNarrow = (narrow?: Narrow): boolean =>
-  !!narrow && caseNarrowDefault(narrow, { pm: () => true, groupPm: () => true }, () => false);
+/**
+ * The stream name for a stream or topic narrow; else error.
+ *
+ * Most callers of this should probably be getting passed a stream name
+ * instead of a Narrow in the first place; or if they do handle other kinds
+ * of narrows, should be using `caseNarrow`.
+ */
+export const streamNameOfNarrow = (narrow: Narrow): string =>
+  caseNarrowPartial(narrow, { stream: name => name, topic: streamName => streamName });
+
+/**
+ * The topic for a topic narrow; else error.
+ *
+ * Most callers of this should probably be getting passed a topic (and a
+ * stream name) instead of a Narrow in the first place; or if they do handle
+ * other kinds of narrows, should be using `caseNarrow`.
+ */
+export const topicOfNarrow = (narrow: Narrow): string =>
+  caseNarrowPartial(narrow, { topic: (streamName, topic) => topic });
+
+export const isPmNarrow = (narrow?: Narrow): boolean =>
+  !!narrow && caseNarrowDefault(narrow, { pm: () => true }, () => false);
 
 export const isSpecialNarrow = (narrow?: Narrow): boolean =>
   !!narrow
@@ -208,37 +387,86 @@ export const isStreamOrTopicNarrow = (narrow?: Narrow): boolean =>
 export const isSearchNarrow = (narrow?: Narrow): boolean =>
   !!narrow && caseNarrowDefault(narrow, { search: () => true }, () => false);
 
-/** (For search narrows, just returns false.) */
-export const isMessageInNarrow = (message: Message, narrow: Narrow, ownEmail: string): boolean => {
-  const matchRecipients = (emails: string[]) => {
-    const normalizedRecipients = normalizeRecipients(message.display_recipient);
-    const normalizedNarrow = [...emails, ownEmail].sort().join(',');
-    return normalizedRecipients === ownEmail || normalizedRecipients === normalizedNarrow;
-  };
+/**
+ * Convert the narrow into the form used in the Zulip API at get-messages.
+ */
+export const apiNarrowOfNarrow = (
+  narrow: Narrow,
+  allUsersById: Map<UserId, UserOrBot>,
+): ApiNarrow =>
+  caseNarrow(narrow, {
+    stream: streamName => [{ operator: 'stream', operand: streamName }],
+    topic: (streamName, topic) => [
+      { operator: 'stream', operand: streamName },
+      { operator: 'topic', operand: topic },
+    ],
+    pm: ids => {
+      const emails = [];
+      for (const id of ids) {
+        const email = allUsersById.get(id)?.email;
+        if (email === undefined) {
+          throw new Error('apiNarrowOfNarrow: missing user');
+        }
+        emails.push(email);
+      }
+      // TODO(server-2.1): just send IDs instead
+      return [{ operator: 'pm-with', operand: emails.join(',') }];
+    },
+    search: query => [{ operator: 'search', operand: query }],
+    home: () => [],
+    starred: () => [{ operator: 'is', operand: 'starred' }],
+    mentioned: () => [{ operator: 'is', operand: 'mentioned' }],
+    allPrivate: () => [{ operator: 'is', operand: 'private' }],
+  });
 
-  const { flags } = message;
-  if (!flags) {
-    throw new Error('`message.flags` should be defined.');
-  }
-
-  return caseNarrow(narrow, {
+/**
+ * True just if the given message is part of the given narrow.
+ *
+ * This function does not support search narrows, and for them always
+ * returns false.
+ *
+ * The message's flags must be in `flags`; `message.flags` is ignored.  This
+ * makes it the caller's responsibility to deal with the ambiguity in our
+ * Message type of whether the message's flags live in a `flags` property or
+ * somewhere else.
+ *
+ * See also getNarrowsForMessage, which should list exactly the narrows this
+ * would return true for.
+ */
+export const isMessageInNarrow = (
+  message: Message | Outbox,
+  flags: $ReadOnlyArray<string>,
+  narrow: Narrow,
+  ownUserId: UserId,
+): boolean =>
+  caseNarrow(narrow, {
     home: () => true,
-    stream: name => name === message.display_recipient,
+    stream: name => message.type === 'stream' && name === streamNameOfStreamMessage(message),
     topic: (streamName, topic) =>
-      streamName === message.display_recipient && topic === message.subject,
-    pm: email => matchRecipients([email]),
-    groupPm: matchRecipients,
+      message.type === 'stream'
+      && streamName === streamNameOfStreamMessage(message)
+      && topic === message.subject,
+    pm: ids => {
+      if (message.type !== 'private') {
+        return false;
+      }
+      const recipients = recipientsOfPrivateMessage(message).map(r => r.id);
+      const narrowAsRecipients = ids;
+      return (
+        normalizeRecipientsAsUserIdsSansMe(recipients, ownUserId)
+        === normalizeRecipientsAsUserIdsSansMe(narrowAsRecipients, ownUserId)
+      );
+    },
     starred: () => flags.includes('starred'),
     mentioned: () => flags.includes('mentioned') || flags.includes('wildcard_mentioned'),
     allPrivate: () => message.type === 'private',
     search: () => false,
+    // Adding a case here?  Be sure to add to getNarrowsForMessage, too.
   });
-};
 
 export const canSendToNarrow = (narrow: Narrow): boolean =>
   caseNarrow(narrow, {
     pm: () => true,
-    groupPm: () => true,
     stream: () => true,
     topic: () => true,
     home: () => false,
@@ -248,32 +476,64 @@ export const canSendToNarrow = (narrow: Narrow): boolean =>
     search: () => false,
   });
 
-/** True just if `haystack` contains all possible messages in `needle`. */
-export const narrowContains = (haystack: Narrow, needle: Narrow): boolean => {
-  if (isHomeNarrow(haystack)) {
-    return true;
+/**
+ * Answers the question, "What narrows does this message appear in?"
+ *
+ * This function does not support search narrows, and it always
+ * excludes them.
+ *
+ * The message's flags must be in `flags`; `message.flags` is ignored.  This
+ * makes it the caller's responsibility to deal with the ambiguity in our
+ * Message type of whether the message's flags live in a `flags` property or
+ * somewhere else.
+ *
+ * See also isMessageInNarrow, which should return true for exactly the
+ * narrows this lists and no others.
+ */
+export const getNarrowsForMessage = (
+  message: Message | Outbox,
+  ownUserId: UserId,
+  flags: $ReadOnlyArray<string>,
+): Narrow[] => {
+  const result = [];
+
+  // All messages are in the home narrow.
+  result.push(HOME_NARROW);
+
+  if (message.type === 'private') {
+    result.push(ALL_PRIVATE_NARROW);
+    result.push(pmNarrowFromRecipients(pmKeyRecipientsFromMessage(message, ownUserId)));
+  } else {
+    const streamName = streamNameOfStreamMessage(message);
+    result.push(topicNarrow(streamName, message.subject));
+    result.push(streamNarrow(streamName));
   }
-  if (isAllPrivateNarrow(haystack) && isPrivateOrGroupNarrow(needle)) {
-    return true;
+
+  if (flags.includes('mentioned') || flags.includes('wildcard_mentioned')) {
+    result.push(MENTIONED_NARROW);
   }
-  if (isStreamNarrow(haystack) && needle[0].operand === haystack[0].operand) {
-    return true;
+
+  if (flags.includes('starred')) {
+    result.push(STARRED_NARROW);
   }
-  return JSON.stringify(needle) === JSON.stringify(haystack);
+
+  // SEARCH_NARROW we always leave out
+
+  return result;
 };
 
-export const getNarrowFromMessage = (message: Message | Outbox, ownEmail: string) => {
-  if (Array.isArray(message.display_recipient)) {
-    const recipient =
-      message.display_recipient.length > 1
-        ? message.display_recipient.filter(x => x.email !== ownEmail)
-        : message.display_recipient;
-    return groupNarrow(recipient.map(x => x.email));
+/**
+ * Answers the question, "Where should my reply to a message go?"
+ *
+ * For stream messages, chooses a topic narrow over a stream narrow.
+ */
+// TODO: probably make this a private local helper of its one caller,
+//   now that it's free of fiddly details from the Narrow data structure
+export const getNarrowForReply = (message: Message | Outbox, ownUserId: UserId) => {
+  if (message.type === 'private') {
+    return pmNarrowFromRecipients(pmKeyRecipientsFromMessage(message, ownUserId));
+  } else {
+    const streamName = streamNameOfStreamMessage(message);
+    return topicNarrow(streamName, message.subject);
   }
-
-  if (message.subject && message.subject.length) {
-    return topicNarrow(message.display_recipient, message.subject);
-  }
-
-  return streamNarrow(message.display_recipient);
 };

@@ -1,5 +1,6 @@
 /* @flow strict-local */
-import type { UnreadPmsState, Action } from '../types';
+import type { Action } from '../types';
+import type { UnreadPmsState } from './unreadModelTypes';
 import {
   REALM_INIT,
   LOGOUT,
@@ -10,6 +11,7 @@ import {
 } from '../actionConstants';
 import { addItemsToPmArray, removeItemsDeeply } from './unreadHelpers';
 import { NULL_ARRAY } from '../nullObjects';
+import { recipientsOfPrivateMessage } from '../utils/recipient';
 
 const initialState: UnreadPmsState = NULL_ARRAY;
 
@@ -18,11 +20,11 @@ const eventNewMessage = (state, action) => {
     return state;
   }
 
-  if (action.message.display_recipient.length !== 2) {
+  if (recipientsOfPrivateMessage(action.message).length !== 2) {
     return state;
   }
 
-  if (action.ownEmail && action.ownEmail === action.message.sender_email) {
+  if (action.ownUserId === action.message.sender_id) {
     return state;
   }
 

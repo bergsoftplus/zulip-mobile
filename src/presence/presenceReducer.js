@@ -27,7 +27,6 @@ export default (state: PresenceState = initialState, action: Action): PresenceSt
     case PRESENCE_RESPONSE:
       return {
         ...state,
-        // $FlowFixMe - Flow bug; should resolve in #4245
         ...action.presence,
       };
 
@@ -44,11 +43,15 @@ export default (state: PresenceState = initialState, action: Action): PresenceSt
         ...state,
         [action.email]: {
           ...state[action.email],
-          // $FlowFixMe - Flow bug; should resolve in #4245
+          // Flow bug (unresolved):
+          // https://github.com/facebook/flow/issues/8276
+          // $FlowIssue #8276
           ...action.presence,
           aggregated: getAggregatedPresence({
             ...state[action.email],
-            // $FlowFixMe - Flow bug; should resolve in #4245
+            // Flow bug (unresolved):
+            // https://github.com/facebook/flow/issues/8276
+            // $FlowIssue #8276
             ...action.presence,
           }),
         },

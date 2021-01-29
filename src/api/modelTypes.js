@@ -4,6 +4,11 @@
  * @flow strict-local
  */
 
+import type { AvatarURL } from '../utils/avatar';
+import type { UserId } from './idTypes';
+
+export type * from './idTypes';
+
 //
 //
 //
@@ -73,7 +78,7 @@ export type DevUser = {|
  *  * `UserOrBot` for a convenience union of the two
  */
 export type User = {|
-  user_id: number,
+  user_id: UserId,
   email: string,
 
   full_name: string,
@@ -106,8 +111,22 @@ export type User = {|
   // instead of an empty string.
   timezone?: string,
 
-  // avatar_url is synthesized on the server by `get_avatar_field`.
-  avatar_url: string | null,
+  /**
+   * Present under EVENT_USER_ADD, EVENT_USER_UPDATE (if change
+   * indicated), under REALM_INIT, and in `state.users`, all as an
+   * AvatarURL, because we translate into that form at the edge.
+   *
+   * For how it appears at the edge (and how we translate) see
+   * AvatarURL.fromUserOrBotData.
+   */
+  avatar_url: AvatarURL,
+
+  // These properties appear in data from the server, but we ignore
+  // them. If we add these, we should try to avoid `avatar_url`
+  // falling out of sync with them.
+  // avatar_source: mixed,
+  // avatar_url_medium: mixed,
+  // avatar_version: mixed,
 
   // profile_data added in commit 02b845336 (in 1.8.0);
   // see also e3aed0f7b (in 2.0.0)
@@ -128,9 +147,10 @@ export type User = {|
  *  * `UserOrBot`, a convenience union
  */
 export type CrossRealmBot = {|
-  // avatar_url included since commit 58ee3fa8c (in 1.9.0)
-  // TODO(crunchy): convert missing -> null
-  avatar_url?: string | null,
+  /**
+   * See note for this property on User.
+   */
+  avatar_url: AvatarURL,
 
   // date_joined included since commit 58ee3fa8c (in 1.9.0)
   date_joined?: string,
@@ -139,7 +159,7 @@ export type CrossRealmBot = {|
   full_name: string,
   is_admin: boolean,
   is_bot: true,
-  user_id: number,
+  user_id: UserId,
 
   // The timezone field has been included since commit 58ee3fa8c (in 1.9.0). Tim
   // mentions in 2020-02, at
@@ -167,7 +187,7 @@ export type UserOrBot = User | CrossRealmBot;
 export type UserGroup = {|
   description: string,
   id: number,
-  members: number[],
+  members: UserId[],
   name: string,
 |};
 
@@ -185,6 +205,11 @@ export type UserStatus = {|
 |};
 
 export type UserStatusMapObject = {|
+  // TODO(flow): The key here is really UserId, not just any number; but
+  //   this Flow bug:
+  //     https://github.com/facebook/flow/issues/5407
+  //   means that doesn't work right, and the best workaround is to
+  //   leave it as `number`.
   [userId: number]: UserStatus,
 |};
 
@@ -279,23 +304,30 @@ export type Topic = {|
 //
 //
 
-export type NarrowOperator =
-  | 'is'
-  | 'in'
-  | 'near'
-  | 'id'
-  | 'stream'
-  | 'topic'
-  | 'sender'
-  | 'pm-with'
-  | 'search';
+// See docs: https://zulip.com/api/construct-narrow
+// prettier-ignore
+/* eslint-disable semi-style */
+export type NarrowElement =
+ | {| +operator: 'is' | 'in' | 'topic' | 'search', +operand: string |}
+ // The server started accepting numeric user IDs and stream IDs in 2.1:
+ //  * `stream` since 2.1-dev-2302-g3680393b4
+ //  * `group-pm-with` since 2.1-dev-1813-gb338fd130
+ //  * `sender` since 2.1-dev-1812-gc067c155a
+ //  * `pm-with` since 2.1-dev-1350-gd7b4de234
+ | {| +operator: 'stream', +operand: string | number |} // stream ID
+ | {| +operator: 'pm-with', +operand: string | $ReadOnlyArray<UserId> |}
+ | {| +operator: 'sender', +operand: string | UserId |}
+ | {| +operator: 'group-pm-with', +operand: string | UserId |}
+ | {| +operator: 'near' | 'id', +operand: number |} // message ID
+ ;
 
-export type NarrowElement = $ReadOnly<{|
-  operand: string,
-  operator: NarrowOperator,
-|}>;
-
-export type Narrow = $ReadOnlyArray<NarrowElement>;
+/**
+ * A narrow, in the form used in the Zulip API at get-messages.
+ *
+ * See also `Narrow` in the non-API app code, which describes how we
+ * represent narrows within the app.
+ */
+export type ApiNarrow = $ReadOnlyArray<NarrowElement>;
 
 //
 //
@@ -327,7 +359,7 @@ export type ReactionType = 'unicode_emoji' | 'realm_emoji' | 'zulip_extra_emoji'
  * normalize it to this form.
  */
 export type Reaction = $ReadOnly<{|
-  user_id: number,
+  user_id: UserId,
 
   emoji_name: string,
   reaction_type: ReactionType,
@@ -348,7 +380,7 @@ export type Reaction = $ReadOnly<{|
  * See also `MessageEdit`.
  */
 export type MessageSnapshot = $ReadOnly<{|
-  user_id: number,
+  user_id: UserId,
   timestamp: number,
 
   /** Docs unclear but suggest absent if only content edited. */
@@ -376,19 +408,21 @@ export type MessageEdit = $ReadOnly<{|
   prev_rendered_content_version?: number,
   prev_subject?: string,
   timestamp: number,
-  user_id: number,
+  user_id: UserId,
 |}>;
 
 /** A user, as seen in the `display_recipient` of a PM `Message`. */
-export type PmRecipientUser = {|
+export type PmRecipientUser = $ReadOnly<{|
   // These five fields (id, email, full_name, short_name, is_mirror_dummy)
   // have all been present since server commit 6b13f4a3c, in 2014.
-  id: number,
+  id: UserId,
   email: string,
   full_name: string,
-  short_name: string,
-  is_mirror_dummy: boolean,
-|};
+  // We mark short_name and is_mirror_dummy optional so we can leave them
+  // out of Outbox values; we never rely on them anyway.
+  short_name?: string,
+  is_mirror_dummy?: boolean,
+|}>;
 
 /**
  * Submessages are items containing extra data that can be added to a
@@ -405,7 +439,7 @@ export type PmRecipientUser = {|
 export type Submessage = $ReadOnly<{|
   id: number,
   message_id: number,
-  sender_id: number,
+  sender_id: UserId,
   msg_type: 'widget', // only this type is currently available
   content: string, // JSON string
 |}>;
@@ -478,10 +512,18 @@ export type Message = $ReadOnly<{|
    */
   flags?: $ReadOnlyArray<string>,
 
-  //
+  /**
+   * Present under EVENT_NEW_MESSAGE and under MESSAGE_FETCH_COMPLETE,
+   * and in `state.messages`, all as an AvatarURL, because we
+   * translate into that form at the edge.
+   *
+   * For how it appears at the edge (and how we translate) see
+   * AvatarURL.fromUserOrBotData.
+   */
+  avatar_url: AvatarURL,
+
   // The rest are believed to really appear in `message` events.
 
-  avatar_url: string | null,
   client: string,
   content: string,
   content_type: 'text/html' | 'text/markdown',
@@ -493,7 +535,7 @@ export type Message = $ReadOnly<{|
   reactions: $ReadOnlyArray<Reaction>,
   sender_email: string,
   sender_full_name: string,
-  sender_id: number,
+  sender_id: UserId,
   sender_realm_str: string,
   sender_short_name: string,
 
@@ -535,7 +577,7 @@ export type Message = $ReadOnly<{|
    *
    * For stream messages, prefer `stream_id`; see #3918.
    */
-  display_recipient: $FlowFixMe, // `string` for type stream, else PmRecipientUser[].
+  display_recipient: string | $ReadOnlyArray<PmRecipientUser>, // `string` for type stream, else PmRecipientUser[]
 
   /** Deprecated; a server implementation detail not useful in a client. */
   recipient_id: number,
@@ -545,3 +587,29 @@ export type Message = $ReadOnly<{|
   subject: string,
   subject_links: $ReadOnlyArray<string>,
 |}>;
+
+//
+//
+//
+// ===================================================================
+// Summaries of messages and conversations.
+//
+//
+
+/**
+ * Describes a single recent PM conversation.
+ *
+ * See API documentation under `recent_private_conversations` at:
+ *   https://chat.zulip.org/api/register-queue
+ *
+ * Note that `user_ids` does not contain the `user_id` of the current user.
+ * Consequently, a user's conversation with themselves will be listed here
+ * as [], which is unlike the behaviour found in some other parts of the
+ * codebase.
+ */
+export type RecentPrivateConversation = {|
+  max_message_id: number,
+  // When received from the server, these are guaranteed to be sorted only after
+  // 2.2-dev-53-g405a529340. To be safe, we always sort them on receipt.
+  user_ids: UserId[],
+|};

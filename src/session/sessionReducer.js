@@ -1,14 +1,12 @@
 /* @flow strict-local */
-import type { Debug, Dimensions, Narrow, Orientation, Action } from '../types';
+import type { Debug, Orientation, Action } from '../types';
 import {
   REHYDRATE,
   DEAD_QUEUE,
-  DO_NARROW,
   LOGIN_SUCCESS,
   APP_ONLINE,
   ACCOUNT_SWITCH,
   REALM_INIT,
-  INIT_SAFE_AREA_INSETS,
   INITIAL_FETCH_COMPLETE,
   INITIAL_FETCH_START,
   APP_ORIENTATION,
@@ -21,17 +19,11 @@ import { hasAuth } from '../account/accountsSelectors';
 
 /**
  * Miscellaneous non-persistent state about this run of the app.
- *
- * @prop lastNarrow - the last narrow we navigated to.  If the user is
- *   currently in a chat screen this will also be the "current" narrow,
- *   but they may also be on an associated info screen or have navigated
- *   away entirely.
  */
 export type SessionState = {|
   eventQueueId: number,
   isOnline: boolean,
   isHydrated: boolean,
-  lastNarrow: ?Narrow,
 
   /**
    * Whether the /register request is in progress.
@@ -63,9 +55,6 @@ export type SessionState = {|
    */
   pushToken: string | null,
 
-  /** For background, google [ios safe area]. */
-  safeAreaInsets: Dimensions,
-
   debug: Debug,
 |};
 
@@ -73,18 +62,11 @@ const initialState: SessionState = {
   eventQueueId: -1,
   isOnline: true,
   isHydrated: false,
-  lastNarrow: null,
   loading: false,
   needsInitialFetch: false,
   orientation: 'PORTRAIT',
   outboxSending: false,
   pushToken: null,
-  safeAreaInsets: {
-    bottom: 0,
-    left: 0,
-    right: 0,
-    top: 0,
-  },
   debug: {
     doNotMarkMessagesAsRead: false,
   },
@@ -99,7 +81,8 @@ const rehydrate = (state, action) => {
     // On rehydration, do an initial fetch if we have access to an account
     // (indicated by the presence of an api key). Otherwise, the initial fetch
     // will be initiated on loginSuccess.
-    // NB navReducer's rehydrate logic depends intimately on this behavior.
+    // NB `InitialNavigationDispatcher`'s `doInitialNavigation`
+    // depends intimately on this behavior.
     needsInitialFetch: haveApiKey,
   };
 };
@@ -122,7 +105,6 @@ export default (state: SessionState = initialState, action: Action): SessionStat
     case LOGOUT:
       return {
         ...state,
-        lastNarrow: null,
         needsInitialFetch: false,
         loading: false,
       };
@@ -130,7 +112,6 @@ export default (state: SessionState = initialState, action: Action): SessionStat
     case ACCOUNT_SWITCH:
       return {
         ...state,
-        lastNarrow: null,
         needsInitialFetch: true,
         loading: false,
       };
@@ -142,12 +123,6 @@ export default (state: SessionState = initialState, action: Action): SessionStat
       return {
         ...state,
         eventQueueId: action.data.queue_id,
-      };
-
-    case DO_NARROW:
-      return {
-        ...state,
-        lastNarrow: action.narrow,
       };
 
     case APP_ONLINE:
@@ -167,12 +142,6 @@ export default (state: SessionState = initialState, action: Action): SessionStat
         ...state,
         loading: false,
         needsInitialFetch: false,
-      };
-
-    case INIT_SAFE_AREA_INSETS:
-      return {
-        ...state,
-        safeAreaInsets: action.safeAreaInsets,
       };
 
     case APP_ORIENTATION:

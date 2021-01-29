@@ -36,7 +36,79 @@ It doesn't include
 
 ## Unreleased
 
-* Fixed crash in 27.155. (#4270)
+
+## 27.158 (2021-01-07)
+
+### Highlights for users
+
+* (iOS) Viewing a conversation now takes you to the right point in the
+  history, including the first time. (#3457, #4357)
+* (iOS) Scrolling through lots of messages is now fast. (#3557)
+* Support the Zulip "spoilers" feature. (#4155)
+* People's avatars now show up crisply, without pixelation. (#4305)
+
+Plus, like every release, many other fixes and improvements for your
+Zulip experience.
+
+
+### Highlights for developers
+
+* The representation of narrows, and particularly of PM conversations,
+  has been greatly refactored.  It should now be much simpler to write
+  and understand code dealing with them, and especially to write it
+  without introducing subtle bugs. (PRs #4382, #4368, #4364, #4361,
+  #4356, #4346, #4342, #4339, #4335, #4332, #4330)
+  * A new Narrow type straightforwardly follows the structure of the
+    information we're representing, in place of the old data
+    structures which mirrored the wire format for the much more
+    complex get-messages API of the server. (PRs #4346, #4342, #4339)
+  * PM conversations are represented with the users' IDs, not
+    emails. (PR #4382, PR #4346)
+  * The `recipient` module offers a suite of functions for explicitly
+    translating between the remaining different ways that different
+    data structures encode PM conversations. (#4035, PR #4356,
+    PR #4335, PR #4332)
+
+* We now use GitHub Actions for our CI, instead of Travis CI.  This
+  should be a much more stable platform; it's faster (builds take
+  about 8-9 minutes, vs. 9-12 minutes on Travis); and it may also help
+  us make it run faster still and produce clearer output. (#4174)
+* Sentry error reports now include the Zulip server version. (#3745)
+* Developer scripts now support NixOS (by using `#!/usr/bin/env`.)
+  (PR #4366)
+
+* Resolved issues (latest to earliest): #4388, PR #4387, #4155, #4174,
+  PR #4373, #4357, #3457, PR #4367, PR #4366, PR #4350, #4035, #3557,
+  #2750, #4338, #4157, #4305, #4307, #3745.
+
+
+## 27.157 (2020-11-12)
+
+### Highlights for users
+
+* Fixed several bugs related to opening a notification. (#4290, #4293,
+  PR #3922)
+
+Plus, like every release, many other fixes and improvements for your
+Zulip experience.
+
+
+### Highlights for developers
+
+* We no longer tie in our navigation with Redux; we no longer use
+  react-navigation-redux-helpers. (#3804)
+* Bumped targetSdkVersion to 29, aka Android 10. (#3665)
+* Dropped iOS 10 support; now iOS 11+. (c953bc336)
+* Resolved issues (latest to earliest): #4303, #4298, #4301, #3804,
+  #4293, #3324, #4290, PR #3922, #3665, #2756 (at 78a62b249), #4281,
+  #4100.
+
+
+## 27.156 (2020-10-10)
+
+* Fixed crashes in the pre-alpha release 27.155. (#4270, #4275)
+
+For other changes since last production release, see 27.155.
 
 
 ## (pre-alpha) 27.155 (2020-09-23)
@@ -58,8 +130,8 @@ Zulip experience.
 
 * #3782: Upgraded to RN v0.62!
 * #3649, #4248: Upgraded to react-navigation v4, from v2.
-* a0d838338: Experimental support for building an Android App Bundle
-  instead of a single APK.
+* a0d838338, #3547: Experimental support for building an
+  Android App Bundle instead of a single APK.
 
 
 ## 27.154 (2020-07-24)
@@ -1345,6 +1417,95 @@ Many fixes and improvements, including:
 * (infra) Updated to React Native v0.57 (from v0.55). (#2789)
 
 
-## 19.2.102 and earlier
+## 19.2.102 (2018-10-30)
 
-TODO: backfill some of this information from notes in other places.
+* (Android) Critical issue with Chrome 70 update. (#3078, #3080)
+* (Android) Target SDK version updated to 26. No change in minimum SDK version. (#3075)
+* Translated to Ukrainian and Hungarian! Updates to others.
+* Unreads screen didn’t show PMs when there were no unread stream messages. (#2949)
+* Autocomplete popup was much taller than screen. (#2997)
+* Other fixes and improvements. (#2905, #2935, #3013, #3046)
+
+
+## (alpha) 19.1.101 (2018-10-25)
+
+This was an alpha-only release, superseded by 19.2.102.
+
+
+## (alpha) 19.0.100 (2018-10-24)
+
+This was an alpha-only release, superseded by 19.2.102.
+
+
+## 18.0.99 (2018-10-02)
+
+Many bugfixes, including:
+* Search terms found in topic are properly highlighted (#2845).
+* Opening embedded items like YouTube videos now works (#2895).
+* When you star a message, the message list updates to show that (#2676).
+
+
+## 17.1.98 (2018-09-21)
+
+Many bugfixes. Notable fixes include:
+* Sending a message with an `@all` mention now succeeds. 📣
+* Several bugs fixed in sharing and viewing images 📷, especially on iOS.
+* Subscribing / unsubscribing to a stream now works again.
+* Topic list now renders the first time you visit it, too.
+
+
+## (beta) 17.0.97 (2018-09-18)
+
+This was a beta-only release, superseded by 17.1.98.
+
+
+## 16.2.96 (2018-08-10)
+
+* New emoji picker screen lets you be the first to react to a
+  message. 🥇
+* More responsive when visiting a conversation from the main nav, and
+  in many other UI interactions.
+* (Android) Stored data is compressed for efficiency.
+* (Android in part) Friendlier error banner on certain failures; and
+  fixed main cause of the same errors.
+* Ready for server-side image thumbnailing, in upcoming versions of
+  the Zulip server.
+* (Android) Future-proof for new versions of the Zulip server to add
+  new notifications features.
+* (Android/iOS) New minimum OS version: Android 4.4 / iOS 9.
+* A number of other fixes and improvements.
+
+
+## (alpha) 15.1.95 (2018-08-10)
+
+This was an alpha-only release, superseded by 16.2.96.
+
+
+## (alpha) 16.1.94 (2018-08-02)
+
+This was an alpha-only release, superseded by 16.2.96.
+
+
+## (alpha) 16.0.93 (2018-08-01)
+
+This was an alpha-only release, superseded by 16.2.96.
+
+
+## 15.0.92 (2018-07-23)
+
+* Fixed #2800, the notorious "things stop updating" bug.
+* Lots of other fixes and improvements.
+
+
+## (beta) 14.1.91 (2018-06-29)
+
+(This was a beta-only release.)
+
+* Fixed #2589, where text inputs would get very slow as you typed more
+  than a couple of sentences.
+* Many other fixes and improvements.
+
+
+## 14.0.90 and earlier
+
+TODO?: backfill some of this information from notes in other places.

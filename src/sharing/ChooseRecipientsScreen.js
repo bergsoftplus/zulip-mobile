@@ -1,13 +1,13 @@
 /* @flow strict-local */
 import React, { PureComponent } from 'react';
-import type { User, Dispatch } from '../types';
+import type { Dispatch, UserId, UserOrBot } from '../types';
 import { connect } from '../react-redux';
 import { Screen } from '../common';
 import UserPickerCard from '../user-picker/UserPickerCard';
 
 type Props = $ReadOnly<{|
   dispatch: Dispatch,
-  onComplete: (User[]) => void,
+  onComplete: ($ReadOnlyArray<UserId>) => void,
 |}>;
 
 type State = {|
@@ -21,9 +21,9 @@ class ChooseRecipientsScreen extends PureComponent<Props, State> {
 
   handleFilterChange = (filter: string) => this.setState({ filter });
 
-  handleComplete = (selected: Array<User>) => {
+  handleComplete = (selected: Array<UserOrBot>) => {
     const { onComplete } = this.props;
-    onComplete(selected);
+    onComplete(selected.map(u => u.user_id));
   };
 
   render() {

@@ -14,6 +14,7 @@ A variety of tools are available to help us do that.
   * ... [with React DevTools](#react-devtools)
   * ... [with Reactotron](#reactotron)
   * ... [with redux-logger](#redux-logger)
+  * ... [with immutable-devtools](#immutable-devtools)
 * [Debugging the message list](#webview) in its WebView
   * ... on iOS, [with Safari developer tools](#webview-safari)
   * ... on Android, [with the Chrome Developer Tools](#webview-chrome)
@@ -158,6 +159,33 @@ call to `createLogger` in `src/boot/middleware.js`.
   doc](https://github.com/evgenyrodionov/redux-logger#options).
 
 
+<div id="immutable-devtools" />
+
+## immutable-devtools: inspect Immutable.js objects in Chrome
+
+Some of the data in the Redux state is stored in Immutable.js data
+structures. It's normally awkward to inspect these data structures; an
+`Immutable.Map` object, for example, is full of properties like
+`size`, `__altered`, `__hash`, and `__ownerID`, which you have to dig
+around to get at a clear representation of the items contained.
+
+[`immutable-devtools`](https://github.com/andrewdavey/immutable-devtools)
+fixes this problem in Google Chrome v47+ by installing a "custom
+formatter".
+
+(Alternatively, we might have recommended a [Chrome
+extension](https://github.com/mattzeunert/immutable-object-formatter-extension),
+which `immutable-devtools` mentions in its setup doc. But using the
+NPM package provides the formatter for `zulip-mobile` just as
+effectively without making widespread changes in behavior when you
+browse the Web.)
+
+To enable it, open Chrome Dev Tools and press F1 to open the settings.
+In the "Console" section, tick "Enable custom formatters". If it isn't
+working, please consult the project's issue tracker before opening an
+issue in `zulip-mobile`.
+
+
 <div id="webview" />
 
 # Tools: Debugging the message list (in WebView)
@@ -196,6 +224,10 @@ a physical device via a browser's developer tools.
    You now have access to the rich developer tools you might be
    familiar with.  You can inspect HTML elements, CSS styles and
    examine console.log output.
+
+To debug code that runs during the initial load of the WebView, add
+`alert("pause"); debugger;` where you want a breakpoint. Then open the
+WebView and connect the debugger before clearing the alert.
 
 
 <div id="webview-chrome" />

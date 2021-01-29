@@ -1,7 +1,9 @@
 /* @flow strict-local */
+import invariant from 'invariant';
 import configureStore from 'redux-mock-store';
 import thunk from 'redux-thunk';
 import omit from 'lodash.omit';
+import Immutable from 'immutable';
 
 import type { GlobalState } from '../../reduxTypes';
 import type { Action } from '../../actionTypes';
@@ -15,14 +17,14 @@ import {
 import { FIRST_UNREAD_ANCHOR } from '../../anchor';
 import type { Message } from '../../api/modelTypes';
 import type { ServerMessage } from '../../api/messages/getMessages';
-import { streamNarrow, HOME_NARROW, HOME_NARROW_STR } from '../../utils/narrow';
-import { navStateWithNarrow } from '../../utils/testHelpers';
+import { streamNarrow, HOME_NARROW, HOME_NARROW_STR, keyFromNarrow } from '../../utils/narrow';
+import { GravatarURL } from '../../utils/avatar';
 import * as eg from '../../__tests__/lib/exampleData';
 
 const mockStore = configureStore([thunk]);
 
 const narrow = streamNarrow('some stream');
-const streamNarrowStr = JSON.stringify(narrow);
+const streamNarrowStr = keyFromNarrow(narrow);
 
 global.FormData = class FormData {};
 
@@ -41,10 +43,9 @@ describe('fetchActions', () => {
             older: true,
           },
         },
-        ...navStateWithNarrow(HOME_NARROW),
-        narrows: {
+        narrows: Immutable.Map({
           [streamNarrowStr]: [],
-        },
+        }),
         streams: [eg.makeStream({ name: 'some stream' })],
       });
 
@@ -64,14 +65,10 @@ describe('fetchActions', () => {
             older: false,
           },
         },
-        ...navStateWithNarrow(HOME_NARROW),
-        narrows: {
+        narrows: Immutable.Map({
           [streamNarrowStr]: [1],
-        },
-        messages: {
-          [message1.id]: message1,
-          [message2.id]: message2,
-        },
+        }),
+        messages: eg.makeMessagesState([message1, message2]),
         streams: [eg.makeStream({ name: 'some stream' })],
       });
 
@@ -113,30 +110,37 @@ describe('fetchActions', () => {
   });
 
   describe('fetchMessages', () => {
-    const message1 = eg.streamMessage({ id: 1 });
+    const email = 'abc123@example.com';
+    const sender = {
+      ...eg.makeUser(),
+      email,
+      avatar_url: GravatarURL.validateAndConstructInstance({ email }),
+    };
+    const message1 = eg.streamMessage({ id: 1, sender });
+
+    type CommonFields = $Diff<Message, { reactions: mixed, avatar_url: mixed }>;
+
+    // message1 exactly as we receive it from the server, before our
+    // own transformations.
+    //
+    // TODO: Deduplicate this logic with similar logic in
+    // migrateMessages-test.js.
+    const serverMessage1: ServerMessage = {
+      ...(omit(message1, 'reactions', 'avatar_url'): CommonFields),
+      reactions: [],
+      avatar_url: null, // Null in server data will be transformed to a GravatarURL
+    };
 
     const baseState = eg.reduxState({
-      ...navStateWithNarrow(HOME_NARROW),
       accounts: [eg.makeAccount()],
-      narrows: {
+      realm: { ...eg.baseReduxState.realm, user_id: eg.selfUser.user_id },
+      narrows: Immutable.Map({
         [streamNarrowStr]: [message1.id],
-      },
+      }),
     });
 
     describe('success', () => {
       beforeEach(() => {
-        type CommonFields = $Diff<Message, { reactions: mixed }>;
-
-        // A message exactly as we receive it from the server, before
-        // our own transformations.
-        //
-        // TODO: Deduplicate this logic with similar logic in
-        // migrateMessages-test.js.
-        const serverMessage1: ServerMessage = {
-          ...(omit(message1, 'reactions'): CommonFields),
-          reactions: [],
-        };
-
         const response = {
           messages: [serverMessage1],
           result: 'success',
@@ -183,7 +187,6 @@ describe('fetchActions', () => {
         // [2] https://chat.zulip.org/#narrow/stream/243-mobile-team/topic/.23M4156.20Message.20List.20placeholders/near/928778
 
         expect(actions[1].type).toBe('MESSAGE_FETCH_COMPLETE');
-
         expect(returnValue).toEqual([message1]);
       });
     });
@@ -245,11 +248,12 @@ describe('fetchActions', () => {
           emoji_code: '1f44d',
           emoji_name: 'thumbs_up',
         };
+
         const response = {
           // Flow would complain at `faultyReaction` if it
           // type-checked `response`, but we should ignore it if that
           // day comes. It's badly shaped on purpose.
-          messages: [{ ...message1, reactions: [faultyReaction] }],
+          messages: [{ ...serverMessage1, reactions: [faultyReaction] }],
           result: 'success',
         };
         fetch.mockResponseSuccess(JSON.stringify(response));
@@ -295,11 +299,11 @@ describe('fetchActions', () => {
     test('when messages to be fetched both before and after anchor, numBefore and numAfter are greater than zero', async () => {
       const store = mockStore<GlobalState, Action>(
         eg.reduxState({
-          ...navStateWithNarrow(HOME_NARROW),
           accounts: [eg.selfAccount],
-          narrows: {
+          realm: { ...eg.baseReduxState.realm, user_id: eg.selfUser.user_id },
+          narrows: Immutable.Map({
             [streamNarrowStr]: [1],
-          },
+          }),
         }),
       );
 
@@ -313,20 +317,19 @@ describe('fetchActions', () => {
       expect(actions.length).toBeGreaterThanOrEqual(1);
       const [action] = actions;
       expect(action.type).toBe('MESSAGE_FETCH_START');
-      if (action.type === 'MESSAGE_FETCH_START') {
-        expect(action.numBefore).toBeGreaterThan(0);
-        expect(action.numAfter).toBeGreaterThan(0);
-      }
+      invariant(action.type === 'MESSAGE_FETCH_START', 'expect failed');
+      expect(action.numBefore).toBeGreaterThan(0);
+      expect(action.numAfter).toBeGreaterThan(0);
     });
 
     test('when no messages to be fetched before the anchor, numBefore is not greater than zero', async () => {
       const store = mockStore<GlobalState, Action>(
         eg.reduxState({
-          ...navStateWithNarrow(HOME_NARROW),
           accounts: [eg.selfAccount],
-          narrows: {
+          realm: { ...eg.baseReduxState.realm, user_id: eg.selfUser.user_id },
+          narrows: Immutable.Map({
             [streamNarrowStr]: [1],
-          },
+          }),
         }),
       );
 
@@ -340,19 +343,18 @@ describe('fetchActions', () => {
       expect(actions.length).toBeGreaterThanOrEqual(1);
       const [action] = actions;
       expect(action.type).toBe('MESSAGE_FETCH_START');
-      if (action.type === 'MESSAGE_FETCH_START') {
-        expect(action.numBefore).not.toBeGreaterThan(0);
-      }
+      invariant(action.type === 'MESSAGE_FETCH_START', 'expect failed');
+      expect(action.numBefore).not.toBeGreaterThan(0);
     });
 
     test('when no messages to be fetched after the anchor, numAfter is not greater than zero', async () => {
       const store = mockStore<GlobalState, Action>(
         eg.reduxState({
-          ...navStateWithNarrow(HOME_NARROW),
           accounts: [eg.selfAccount],
-          narrows: {
+          realm: { ...eg.baseReduxState.realm, user_id: eg.selfUser.user_id },
+          narrows: Immutable.Map({
             [streamNarrowStr]: [1],
-          },
+          }),
         }),
       );
 
@@ -366,9 +368,8 @@ describe('fetchActions', () => {
       expect(actions.length).toBeGreaterThanOrEqual(1);
       const [action] = actions;
       expect(action.type).toBe('MESSAGE_FETCH_START');
-      if (action.type === 'MESSAGE_FETCH_START') {
-        expect(action.numAfter).not.toBeGreaterThan(0);
-      }
+      invariant(action.type === 'MESSAGE_FETCH_START', 'expect failed');
+      expect(action.numAfter).not.toBeGreaterThan(0);
     });
   });
 
@@ -377,18 +378,14 @@ describe('fetchActions', () => {
     const message2 = eg.streamMessage({ id: 2 });
 
     const baseState = eg.reduxState({
-      ...navStateWithNarrow(HOME_NARROW),
       accounts: [eg.selfAccount],
-      narrows: {
-        ...eg.baseReduxState.narrows,
-        [streamNarrowStr]: [message2.id],
-        [HOME_NARROW_STR]: [message1.id, message2.id],
-      },
-      messages: {
-        ...eg.baseReduxState.messages,
-        [message1.id]: message1,
-        [message2.id]: message1,
-      },
+      narrows: eg.baseReduxState.narrows.merge(
+        Immutable.Map({
+          [streamNarrowStr]: [message2.id],
+          [HOME_NARROW_STR]: [message1.id, message2.id],
+        }),
+      ),
+      messages: eg.makeMessagesState([message1, message2]),
     });
 
     test('message fetch start action is dispatched with numBefore greater than zero', async () => {
@@ -409,9 +406,8 @@ describe('fetchActions', () => {
       expect(actions).toHaveLength(1);
       const [action] = actions;
       expect(action.type).toBe('MESSAGE_FETCH_START');
-      if (action.type === 'MESSAGE_FETCH_START') {
-        expect(action.numBefore).toBeGreaterThan(0);
-      }
+      invariant(action.type === 'MESSAGE_FETCH_START', 'expect failed');
+      expect(action.numBefore).toBeGreaterThan(0);
     });
 
     test('when caughtUp older is true, no action is dispatched', async () => {
@@ -471,18 +467,14 @@ describe('fetchActions', () => {
     const message2 = eg.streamMessage({ id: 2 });
 
     const baseState = eg.reduxState({
-      ...navStateWithNarrow(HOME_NARROW),
       accounts: [eg.selfAccount],
-      narrows: {
-        ...eg.baseReduxState.narrows,
-        [streamNarrowStr]: [message2.id],
-        [HOME_NARROW_STR]: [message1.id, message2.id],
-      },
-      messages: {
-        ...eg.baseReduxState.messages,
-        [message1.id]: message1,
-        [message2.id]: message1,
-      },
+      narrows: eg.baseReduxState.narrows.merge(
+        Immutable.Map({
+          [streamNarrowStr]: [message2.id],
+          [HOME_NARROW_STR]: [message1.id, message2.id],
+        }),
+      ),
+      messages: eg.makeMessagesState([message1, message2]),
     });
 
     test('message fetch start action is dispatched with numAfter greater than zero', async () => {
@@ -503,9 +495,8 @@ describe('fetchActions', () => {
       expect(actions).toHaveLength(1);
       const [action] = actions;
       expect(action.type).toBe('MESSAGE_FETCH_START');
-      if (action.type === 'MESSAGE_FETCH_START') {
-        expect(action.numAfter).toBeGreaterThan(0);
-      }
+      invariant(action.type === 'MESSAGE_FETCH_START', 'expect failed');
+      expect(action.numAfter).toBeGreaterThan(0);
     });
 
     test('when caughtUp newer is true, no action is dispatched', async () => {

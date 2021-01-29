@@ -37,7 +37,10 @@ export const hexToBase64 = (hex: string) => base64.encode(hexToAscii(hex));
  *
  * This lets us pass an arbitrary string through a channel (like the
  * `postMessage` on RN's WebViews on Android) that tries to do something
- * like percent-decode it.
+ * like percent-decode it, or (like an HTML attribute) that forbids certain
+ * characters.
+ *
+ * See also `base64Utf8Decode` for the inverse.
  */
 export const base64Utf8Encode = (text: string): string =>
   // References on reliably encoding strings to Base64:
@@ -53,3 +56,9 @@ export const base64Utf8Encode = (text: string): string =>
   // We use `base64.encode` because `btoa` is unavailable in the JS
   // environment provided by RN on iOS.
   base64.encode(unescape(encodeURIComponent(text)));
+
+/**
+ * The inverse of `base64Utf8Encode`, above.
+ */
+export const base64Utf8Decode = (str: string): string =>
+  decodeURIComponent(escape(base64.decode(str)));

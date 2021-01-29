@@ -14,44 +14,36 @@ const componentStyles = createStyleSheet({
   },
 });
 
-type Props = $ReadOnly<{|
-  email: string,
-  usersByEmail: Map<string, UserOrBot>,
+type Props<U> = $ReadOnly<{|
+  users: U,
   unreadCount: number,
-  onPress: (emails: string) => void,
+  onPress: (users: U) => void,
 |}>;
 
 /**
  * A list item describing one group PM conversation.
  * */
-export default class GroupPmConversationItem extends PureComponent<Props> {
+export default class GroupPmConversationItem<U: $ReadOnlyArray<UserOrBot>> extends PureComponent<
+  Props<U>,
+> {
   handlePress = () => {
-    const { email, onPress } = this.props;
-    onPress(email);
+    const { users, onPress } = this.props;
+    onPress(users);
   };
 
   render() {
-    const { email, usersByEmail, unreadCount } = this.props;
-    const allUsers = email.split(',').map(e => usersByEmail.get(e));
-
-    const allUsersFound = allUsers.every(user => user);
-
-    if (!allUsersFound) {
-      return null;
-    }
-
-    // $FlowFixMe Flow doesn't see the `every` check above.
-    const allNames = allUsers.map(user => user.full_name);
+    const { users, unreadCount } = this.props;
+    const names = users.map(user => user.full_name);
 
     return (
       <Touchable onPress={this.handlePress}>
         <View style={styles.listItem}>
-          <GroupAvatar size={48} names={allNames} />
+          <GroupAvatar size={48} names={names} />
           <RawLabel
             style={componentStyles.text}
             numberOfLines={2}
             ellipsizeMode="tail"
-            text={allNames.join(', ')}
+            text={names.join(', ')}
           />
           <UnreadCount count={unreadCount} />
         </View>

@@ -1,8 +1,7 @@
 /* @flow strict-local */
 import { createSelector } from 'reselect';
 
-import type { GlobalState, UserOrBot, Selector, User } from '../types';
-import { NULL_USER } from '../nullObjects';
+import type { GlobalState, UserOrBot, Selector, User, UserId } from '../types';
 import { getUsers, getCrossRealmBots, getNonActiveUsers } from '../directSelectors';
 
 /**
@@ -21,7 +20,7 @@ import { getUsers, getCrossRealmBots, getNonActiveUsers } from '../directSelecto
  * user to send a PM to -- deactivated users should be left out.
  *
  * See:
- *  * `getActiveUsersByEmail` for leaving out deactivated users
+ *  * `getActiveUsersById` for leaving out deactivated users
  *  * `User` for details on properties, and links to docs.
  */
 const getAllUsers: Selector<UserOrBot[]> = createSelector(
@@ -36,7 +35,7 @@ const getAllUsers: Selector<UserOrBot[]> = createSelector(
 );
 
 /** See `getAllUsers` for discussion. */
-export const getAllUsersById: Selector<Map<number, UserOrBot>> = createSelector(
+export const getAllUsersById: Selector<Map<UserId, UserOrBot>> = createSelector(
   getAllUsers,
   allUsers => new Map(allUsers.map(user => [user.user_id, user])),
 );
@@ -53,25 +52,15 @@ export const getAllUsersByEmail: Selector<Map<string, UserOrBot>> = createSelect
 );
 
 /**
+ * PRIVATE; exported only for tests.
+ *
  * WARNING: despite the name, only (a) `is_active` users (b) excluding cross-realm bots.
  *
  * See `getAllUsersById`, and `getAllUsers` for discussion.
  */
-export const getUsersById: Selector<Map<number, User>> = createSelector(
+export const getUsersById: Selector<Map<UserId, User>> = createSelector(
   getUsers,
   (users = []) => new Map(users.map(user => [user.user_id, user])),
-);
-
-/**
- * WARNING: despite the name, only (a) `is_active` users (b) excluding cross-realm bots.
- *
- * Prefer `getUsersById`; see #3764.
- *
- * See `getAllUsersByEmail`, and `getAllUsers` for discussion.
- */
-export const getUsersByEmail: Selector<Map<string, User>> = createSelector(
-  getUsers,
-  (users = []) => new Map(users.map(user => [user.email, user])),
 );
 
 /**
@@ -96,7 +85,7 @@ export const getSortedUsers: Selector<User[]> = createSelector(
  */
 // Not currently used, but should replace uses of `getOwnEmail` (e.g. inside
 // `getOwnUser`).  See #3764.
-export const getOwnUserId = (state: GlobalState): number => {
+export const getOwnUserId = (state: GlobalState): UserId => {
   const { user_id } = state.realm;
   if (user_id === undefined) {
     throw new Error('No server data found');
@@ -131,54 +120,25 @@ export const getOwnEmail = (state: GlobalState): string => {
  * See also `getOwnUserId` and `getOwnEmail`.
  */
 export const getOwnUser = (state: GlobalState): User => {
-  const ownEmail = getOwnEmail(state);
-  const ownUser = getUsersByEmail(state).get(ownEmail);
+  const ownUser = getUsersById(state).get(getOwnUserId(state));
   if (ownUser === undefined) {
-    throw new Error('Have ownEmail, but not found in user data');
+    throw new Error('Have ownUserId, but not found in user data');
   }
   return ownUser;
 };
 
 /**
- * DEPRECATED; don't add new uses.  Generally, use `getOwnUser` instead.
+ * The user with the given user ID, or null if no such user is known.
  *
- * PRs to eliminate the remaining uses of this are welcome.
+ * This works for any user in this Zulip org/realm, including deactivated
+ * users and cross-realm bots.  See `getAllUsers` for details.
  *
- * For discussion, see `nullObjects.js`.
+ * See `getUserForId` for a version which only ever returns a real user,
+ * throwing if none.  That makes it a bit simpler to use in contexts where
+ * we assume the relevant user must exist, which is true of most of the app.
  */
-export const getSelfUserDetail = (state: GlobalState): User =>
-  getUsersByEmail(state).get(getOwnEmail(state)) || NULL_USER;
-
-/**
- * WARNING: despite the name, only (a) `is_active` users (b) excluding cross-realm bots.
- *
- * See `getAllUsers`.
- */
-export const getUsersSansMe: Selector<User[]> = createSelector(
-  getUsers,
-  getOwnEmail,
-  (users, ownEmail) => users.filter(user => user.email !== ownEmail),
-);
-
-/**
- * Excludes deactivated users.  See `getAllUsers` for discussion.
- *
- * Prefer `getActiveUsersById`; see #3764.
- */
-export const getActiveUsersByEmail: Selector<Map<string, UserOrBot>> = createSelector(
-  getUsers,
-  getCrossRealmBots,
-  (users = [], crossRealmBots = []) =>
-    new Map([...users, ...crossRealmBots].map(user => [user.email, user])),
-);
-
-/** Excludes deactivated users.  See `getAllUsers` for discussion. */
-export const getActiveUsersById: Selector<Map<number, UserOrBot>> = createSelector(
-  getUsers,
-  getCrossRealmBots,
-  (users = [], crossRealmBots = []) =>
-    new Map([...users, ...crossRealmBots].map(user => [user.user_id, user])),
-);
+export const tryGetUserForId = (state: GlobalState, userId: UserId): UserOrBot | null =>
+  getAllUsersById(state).get(userId) ?? null;
 
 /**
  * The user with the given user ID.
@@ -187,9 +147,11 @@ export const getActiveUsersById: Selector<Map<number, UserOrBot>> = createSelect
  * users and cross-realm bots.  See `getAllUsers` for details.
  *
  * Throws if no such user exists.
+ *
+ * See `tryGetUserForId` for a non-throwing version.
  */
-export const getUserForId = (state: GlobalState, userId: number): UserOrBot => {
-  const user = getAllUsersById(state).get(userId);
+export const getUserForId = (state: GlobalState, userId: UserId): UserOrBot => {
+  const user = tryGetUserForId(state, userId);
   if (!user) {
     throw new Error(`getUserForId: missing user: id ${userId}`);
   }
@@ -197,22 +159,21 @@ export const getUserForId = (state: GlobalState, userId: number): UserOrBot => {
 };
 
 /**
- * The user with the given email.
+ * DEPRECATED except as a cache private to this module.
  *
- * Prefer `getUserForId` where a user ID is available; see #3764.
+ * Excludes deactivated users.  See `getAllUsers` for discussion.
  *
- * This works for any user in this Zulip org/realm, including deactivated
- * users and cross-realm bots.  See `getAllUsers` for details.
- *
- * Throws if no such user exists.
+ * Instead of this selector, use:
+ *  * `getAllUsersById` for data on an arbitrary user
+ *  * `getUserIsActive` for the specific information of whether a user is
+ *    deactivated.
  */
-export const getUserForEmail = (state: GlobalState, email: string): UserOrBot => {
-  const user = getAllUsersByEmail(state).get(email);
-  if (!user) {
-    throw new Error(`getUserForEmail: missing user: email ${email}`);
-  }
-  return user;
-};
+const getActiveUsersById: Selector<Map<UserId, UserOrBot>> = createSelector(
+  getUsers,
+  getCrossRealmBots,
+  (users = [], crossRealmBots = []) =>
+    new Map([...users, ...crossRealmBots].map(user => [user.user_id, user])),
+);
 
 /**
  * The value of `is_active` for the given user.
@@ -227,5 +188,11 @@ export const getUserForEmail = (state: GlobalState, email: string): UserOrBot =>
  */
 // To understand this implementation, see the comment about `is_active` in
 // the `User` type definition.
-export const getUserIsActive = (state: GlobalState, userId: number): boolean =>
+export const getUserIsActive = (state: GlobalState, userId: UserId): boolean =>
   !!getActiveUsersById(state).get(userId);
+
+/**
+ * Whether we have server data for the active account.
+ */
+// Valid server data must have a user: the self user, at a minimum.
+export const getHaveServerData = (state: GlobalState): boolean => getUsers(state).length > 0;

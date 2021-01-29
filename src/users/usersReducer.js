@@ -21,7 +21,7 @@ export default (state: UsersState = initialState, action: Action): UsersState =>
       return initialState;
 
     case REALM_INIT:
-      return action.data.realm_users || initialState;
+      return action.data.realm_users;
 
     case EVENT_USER_ADD:
       return [...state, action.person];
@@ -30,7 +30,9 @@ export default (state: UsersState = initialState, action: Action): UsersState =>
       return state; // TODO
 
     case EVENT_USER_UPDATE:
-      return state; // TODO
+      return state.map(user =>
+        user.user_id === action.userId ? { ...user, ...action.person } : user,
+      );
 
     default:
       return state;

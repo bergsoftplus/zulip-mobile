@@ -1,43 +1,38 @@
 /* @flow strict-local */
 import React, { PureComponent } from 'react';
 import { FlatList } from 'react-native';
-import type { NavigationScreenProp } from 'react-navigation';
 
-import type { Dispatch, UserOrBot } from '../types';
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import * as NavigationService from '../nav/NavigationService';
+import type { Dispatch, UserOrBot, UserId } from '../types';
 import { connect } from '../react-redux';
 import { Screen } from '../common';
 import UserItem from '../users/UserItem';
 import { navigateToAccountDetails } from '../actions';
 
 type Props = $ReadOnly<{|
-  navigation: NavigationScreenProp<{ params: {| recipients: UserOrBot[] |} }>,
+  navigation: AppNavigationProp<'group-details'>,
+  route: RouteProp<'group-details', {| recipients: $ReadOnlyArray<UserId> |}>,
+
   dispatch: Dispatch,
 |}>;
 
 class GroupDetailsScreen extends PureComponent<Props> {
-  handlePress = (userId: number) => {
-    this.props.dispatch(navigateToAccountDetails(userId));
+  handlePress = (user: UserOrBot) => {
+    NavigationService.dispatch(navigateToAccountDetails(user.user_id));
   };
 
   render() {
-    const { recipients } = this.props.navigation.state.params;
+    const { recipients } = this.props.route.params;
     return (
       <Screen title="Recipients" scrollEnabled={false}>
         <FlatList
           initialNumToRender={10}
           data={recipients}
-          keyExtractor={item => item.email}
+          keyExtractor={item => String(item)}
           renderItem={({ item }) => (
-            <UserItem
-              key={item.email}
-              fullName={item.full_name}
-              avatarUrl={item.avatar_url}
-              email={item.email}
-              showEmail
-              onPress={() => {
-                this.handlePress(item.user_id);
-              }}
-            />
+            <UserItem key={item} userId={item} showEmail onPress={this.handlePress} />
           )}
         />
       </Screen>

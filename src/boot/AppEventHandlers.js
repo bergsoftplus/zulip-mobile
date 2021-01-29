@@ -3,7 +3,6 @@
 import React, { PureComponent } from 'react';
 import { AppState, View, Platform, NativeModules } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import SafeArea from 'react-native-safe-area';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
 import type { Node as React$Node } from 'react';
@@ -17,7 +16,7 @@ import {
   notificationOnAppActive,
 } from '../notification';
 import { ShareReceivedListener, handleInitialShare } from '../sharing';
-import { appOnline, appOrientation, initSafeAreaInsets } from '../actions';
+import { appOnline, appOrientation } from '../actions';
 import PresenceHeartbeat from '../presence/PresenceHeartbeat';
 
 /**
@@ -124,14 +123,11 @@ class AppEventHandlers extends PureComponent<Props> {
   componentDidMount() {
     const { dispatch } = this.props;
     handleInitialNotification(dispatch);
-    dispatch(handleInitialShare);
+    handleInitialShare(dispatch);
 
     this.netInfoDisconnectCallback = NetInfo.addEventListener(this.handleConnectivityChange);
     AppState.addEventListener('change', this.handleAppStateChange);
     AppState.addEventListener('memoryWarning', this.handleMemoryWarning);
-    SafeArea.getSafeAreaInsetsForRootView().then(params =>
-      dispatch(initSafeAreaInsets(params.safeAreaInsets)),
-    );
     ScreenOrientation.addOrientationChangeListener(this.handleOrientationChange);
     this.notificationListener.start();
     this.shareListener.start();

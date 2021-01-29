@@ -2,8 +2,10 @@
 
 import React, { PureComponent } from 'react';
 import { FlatList } from 'react-native';
-import type { NavigationScreenProp } from 'react-navigation';
 
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import * as NavigationService from '../nav/NavigationService';
 import * as api from '../api';
 import { unicodeCodeByName } from './codePointMap';
 import { Screen } from '../common';
@@ -16,10 +18,12 @@ import { navigateBack } from '../nav/navActions';
 import zulipExtraEmojiMap from './zulipExtraEmojiMap';
 
 type Props = $ReadOnly<{|
+  navigation: AppNavigationProp<'emoji-picker'>,
+  route: RouteProp<'emoji-picker', {| messageId: number |}>,
+
   activeImageEmojiByName: RealmEmojiById,
   auth: Auth,
   dispatch: Dispatch,
-  navigation: NavigationScreenProp<{ params: {| messageId: number |} }>,
 |}>;
 
 type State = {|
@@ -52,12 +56,12 @@ class EmojiPickerScreen extends PureComponent<Props, State> {
   };
 
   addReaction = (emojiName: string) => {
-    const { auth, dispatch, navigation } = this.props;
-    const { messageId } = navigation.state.params;
+    const { auth, route } = this.props;
+    const { messageId } = route.params;
 
     const { reactionType, emojiCode } = this.getReactionTypeAndCode(emojiName);
     api.emojiReactionAdd(auth, messageId, reactionType, emojiCode, emojiName);
-    dispatch(navigateBack());
+    NavigationService.dispatch(navigateBack());
   };
 
   render() {

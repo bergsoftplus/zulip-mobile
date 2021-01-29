@@ -14,34 +14,46 @@ simple terminology for the process we follow with both.
 * **Alpha**: A release only to active developers of the app.  See
   [instructions](alpha.md) for joining.
 
-  * On Google Play this means an "Internal test" release, and on iOS it
-    means a release in TestFlight to "App Store Connect Users".
+  * What this means on each platform:
+    * Google Play: release to "Internal testing"
+    * iOS: release in TestFlight to "App Store Connect Users"
+    * GitHub: a Git tag
 
-  * On both platforms, a new version in this channel is available for update
-    immediately on devices.  We use it for final manual QA before releasing
-    to beta or production.
+  * On both Google Play and TestFlight, a new version in this channel
+    is available for update immediately on devices.  We use it for
+    final manual QA before releasing to beta or production.
 
-  * NB Google Play has its own feature it calls "Alpha" (aka "Closed track"),
-    which is sort of intermediate between "Internal test" and "Beta".  We
-    don't use this feature.
+  * NB Google Play has its own feature it calls "Alpha" (aka "Closed
+    track" or a "closed testing track"), which is sort of intermediate
+    between "Internal testing" and "Open testing".  We don't use this
+    feature.
 
 * **Beta**: A release to users who have volunteered to get new versions
   early and give us feedback.  See
   [instructions](https://github.com/zulip/zulip-mobile#using-the-beta) for
   joining.
 
-  * On Google Play this means a "Beta" aka "Open track" release, and on iOS
-    it means a release to all our TestFlight users, through the "External
-    Testers" group.
+  * What this means on each platform:
+    * Google Play: release to "Open testing"
+    * iOS: release to all our TestFlight users (through the
+      "External Testers" group)
+    * GitHub: a GitHub release with binaries and description,
+      marked as pre-release
 
   * We use this channel for wider testing of a release before sending to
     production: about 1 day for a typical (stable) release, 2-4 days for a
     new major release, or not at all for a security release.
 
+  * NB Google Play also calls this "Beta track" or "Open track", as
+    well as "Open testing".
+
 * **Production** (aka **prod**): A general release to all users.
 
-  * On Google Play this means a "Production" release, and on iOS an
-    App Store release.
+  * What this means on each platform:
+    * Google Play: release to "Production"
+    * iOS: release to the App Store
+    * GitHub: a GitHub release with binaries and description,
+      not marked pre-release
 
   * On iOS there is a gotcha we've occasionally fallen for in the past:
     because releasing to the App Store is mostly a separate process from
@@ -59,6 +71,9 @@ simple terminology for the process we follow with both.
 
 ### Prepare the commit
 
+* Prepare the changelog.  See `git log --stat -p docs/changelog.md`
+  for examples.
+
 * Sync translations with Transifex: `tools/tx-sync`.
 
   * This ensures we release with the latest translations provided by
@@ -72,6 +87,8 @@ simple terminology for the process we follow with both.
 
 * Inspect the resulting commit and tag, and push.
 
+
+<div id="alpha-android" />
 
 ### Build and upload alpha: Android
 
@@ -90,10 +107,13 @@ simple terminology for the process we follow with both.
 * This produces an AAB at `android/app/build/outputs/bundle/release/app-release.aab`
   and an APK at `android/app/build/outputs/apk/release/app-release.apk`.
 
-* Upload the AAB to Google Play via the "Create Release" button on the
-  ["Internal test" track management][play-manage-internal] page
-  (within [Release management -> App releases][play-manage-releases]).
+* Upload the AAB to Google Play via the "Create new release" button at
+  the top of the
+  [Release > Testing > Internal testing][play-internal-testing] page.
   (We'll use the APK when posting the release on GitHub, at beta stage.)
+
+  * For the release notes, use `tools/changelog user` and edit as
+    needed.  (E.g., fix paragraph wrapping, and delete iOS-only items.)
 
   * Alternatively, to distribute as a "pre-alpha", upload to Google
     Play via ["Internal app sharing"][play-internal-app-sharing].
@@ -115,9 +135,12 @@ simple terminology for the process we follow with both.
     first build we make is expected to be good with high probability,
     this track costs more inconvenience than it saves.
 
-[play-manage-releases]: https://play.google.com/apps/publish/#ManageReleasesPlace:p=com.zulipmobile&appid=4976350040864490411
-[play-manage-internal]: https://play.google.com/apps/publish/?account=8060868091387311598#ManageReleaseTrackPlace:p=com.zulipmobile&releaseTrackId=4699145961663258026
-[play-internal-app-sharing]: https://play.google.com/apps/publish/internalappsharing/
+* The release should be available immediately on your devices:
+  navigate to the Zulip screen in the Play Store app, and it should
+  already show an "Update" button.
+
+[play-internal-testing]: https://play.google.com/console/developers/8060868091387311598/app/4976350040864490411/tracks/internal-testing
+[play-internal-app-sharing]: https://play.google.com/console/internal-app-sharing
 
 
 ### Build and upload alpha: iOS
@@ -207,24 +230,44 @@ simple terminology for the process we follow with both.
 
 * Android via Play Store:
 
-  * Go to
-    [Release management -> App releases -> Internal test][play-manage-internal]
+  * Go to [Release > Testing > Internal testing][play-internal-testing]
     in the Google Play Console.  (If you just uploaded the alpha, that
     took you here already.)
 
-  * Use the "Release to beta" button there.
+  * Under the release you want to promote, choose "Promote release >
+    Open testing".
 
-[play-manage-internal]: https://play.google.com/apps/publish/?account=8060868091387311598#ManageReleaseTrackPlace:p=com.zulipmobile&releaseTrackId=4699145961663258026
+  * After confirming, you'll see the [Release > Testing > Open
+    testing][play-open-testing] page, and the new release will appear
+    there in state "In review".
+
+    * This review step was new [in 2020][czo-first-play-beta-review].
+      But it [seems to be fast][czo-fast-play-beta-review] -- under an
+      hour.
+
+[play-internal-testing]: https://play.google.com/console/developers/8060868091387311598/app/4976350040864490411/tracks/internal-testing
+[play-open-testing]: https://play.google.com/console/developers/8060868091387311598/app/4976350040864490411/tracks/open-testing
+[czo-first-play-beta-review]: https://chat.zulip.org/#narrow/stream/48-mobile/topic/release/near/1038894
+[czo-fast-play-beta-review]: https://chat.zulip.org/#narrow/stream/48-mobile/topic/release/near/1094653
 
 
 * Android via GitHub:
 
-  * Upload as a [GitHub release][gh-releases].  Include both the APK
-    and the AAB.
-
+  * Upload as a [GitHub release][gh-releases].
     This is useful for people who use Android without Google Play,
     e.g. out of privacy concerns or a desire to stick rigorously to
     free software.
+
+  * Name the release the same as the tag name.
+
+  * For the release notes, use `tools/changelog notes`, and fix
+    formatting as needed.
+
+    * The hashes printed at the bottom are based on the files found at
+      the usual build-output locations mentioned [above](#alpha-android).
+      Those should be the same files you upload.
+
+  * Upload both the AAB and the APK.
 
     (The AAB is more flexible and is the only version we use with
     Google Play, but the APK is simpler and may be a bit easier for
@@ -246,13 +289,13 @@ simple terminology for the process we follow with both.
     and hit the "+" icon at the top of the list of builds to enter a
     modal dialog.
 
-    * Leave the username and password (for the Apple reviewer)
-      unchanged.
+    * For the "What to Test" notes, use `tools/changelog user` and
+      edit as needed.  (E.g., fix paragraph wrapping, and delete
+      Android-only items.)
 
-    * Enter notes for testers.
-
-  * The build will go into "Beta App Review".  This typically comes back the
-    next morning, California time.  If successful, the app is out in beta!
+  * The same External Testers page should now show the build in status
+    "Waiting for Review".  This typically comes back the next morning,
+    California time.  If successful, the app is out in beta!
 
   * Also submit for App Store review, to save latency in the prod rollout:
 
@@ -263,7 +306,9 @@ simple terminology for the process we follow with both.
 
     * In the draft listing:
 
-      * At the top, fill in "What's New in This Version".
+      * At the top, fill in "What's New in This Version".  Use
+        `tools/changelog user`, editing as needed, just like for
+        TestFlight.
 
       * Optionally, update the previews/screenshots, and the
         description and other text.
@@ -274,9 +319,6 @@ simple terminology for the process we follow with both.
       * Under "Version Release" near the bottom, make sure "Manually
         release this version" is selected (vs. "Automatically release
         this version").
-
-      * At the bottom, for the "Advertising Identifier (IDFA)"
-        question, select "No, it doesn't".
 
       * Back at the top, hit "Save" and then "Submit for Review".
 
@@ -289,6 +331,18 @@ simple terminology for the process we follow with both.
 [asc-main]: https://appstoreconnect.apple.com/apps/1203036395/appstore/info
 
 
+* Announce on chat.zulip.org:
+
+  * Announce the new beta release [in `#mobile > release`][] on czo.
+
+  * Use `tools/changelog czo` for the release notes, editing
+    formatting as needed.  Note that the tool rewrites issue/PR
+    references like `#1234` to `#M1234` instead, so that they get
+    linkified correctly.
+
+[in `#mobile > release`]: https://chat.zulip.org/#narrow/stream/48-mobile/topic/release
+
+
 ### Release to production
 
 Do this after the beta has been out a couple of days and there don't
@@ -296,13 +350,21 @@ seem to be bad regressions.
 
 * Android via Play Store:
 
-  * In the Play Console, go to [Release Management -> App releases ->
-    Manage Beta][play-manage-beta].
+  * In the Play Console, go to [Release > Testing >
+    Open testing][play-open-testing].
 
-  * Hit "Release to Production".  Look at the "What's new" box at the bottom,
-    and check that the text is good.  Hit the button to confirm the release.
+  * Under "Releases", hit the "Promote release" dropdown, and choose
+    "Production".  Look at the "What's new" box at the bottom,
+    and check that the text is good.  Hit the button to proceed to the
+    next screen.
 
-[play-manage-beta]: https://play.google.com/apps/publish/?account=8060868091387311598#ManageReleaseTrackPlace:p=com.zulipmobile&releaseTrackId=4697711623380261182
+  * Under "Staged roll-out", consider the roll-out percentage.  If
+    it's less than 100% -- as the default may indeed be -- remember to
+    come back later to make a 100% rollout.
+
+  * Hit "Start rollout to Production" at the bottom.
+
+[play-open-testing]: https://play.google.com/console/u/0/developers/8060868091387311598/app/4976350040864490411/tracks/open-testing
 
 
 * Android via GitHub:

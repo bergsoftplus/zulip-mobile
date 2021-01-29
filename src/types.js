@@ -2,12 +2,15 @@
 import type { IntlShape } from 'react-intl';
 import type { DangerouslyImpreciseStyleProp } from 'react-native/Libraries/StyleSheet/StyleSheet';
 
-import type { Auth, Topic, Message, Reaction, ReactionType, Narrow } from './api/apiTypes';
+import type { SubsetProperties } from './generics';
+import type { Auth, Topic, Message, ReactionType, UserId } from './api/apiTypes';
 import type { ZulipVersion } from './utils/zulipVersion';
+import type { PmKeyUsers } from './utils/recipient';
 
 export type * from './generics';
 export type * from './reduxTypes';
 export type * from './api/apiTypes';
+export type { Narrow } from './utils/narrow';
 
 export { ensureUnreachable } from './generics';
 
@@ -118,7 +121,7 @@ export type AggregatedReaction = {|
   name: string,
   selfReacted: boolean,
   type: ReactionType,
-  users: $ReadOnlyArray<number>,
+  users: $ReadOnlyArray<UserId>,
 |};
 
 export type EditMessage = {|
@@ -158,7 +161,7 @@ export type TopicExtended = {|
  * This type most often appears in the union `Message | Outbox`, and so its
  * properties are deliberately similar to those of `Message`.
  */
-export type Outbox = {|
+export type Outbox = $ReadOnly<{|
   /** Used for distinguishing from a `Message` object. */
   isOutbox: true,
 
@@ -171,23 +174,35 @@ export type Outbox = {|
    */
   isSent: boolean,
 
-  // These fields don't exist in `Message`.
-  // They're used for sending the message to the server.
+  // `markdownContent` doesn't exist in `Message`.
+  // It's used for sending the message to the server.
   markdownContent: string,
-  narrow: Narrow,
 
-  // These fields are modeled on `Message`.
-  avatar_url: string | null,
-  content: string,
-  display_recipient: $FlowFixMe, // `string` for type stream, else PmRecipientUser[].
-  id: number,
-  reactions: Reaction[],
-  sender_email: string,
-  sender_full_name: string,
-  subject: string,
-  timestamp: number,
-  type: 'stream' | 'private',
-|};
+  // The remaining fields are modeled on `Message`.
+
+  // TODO(#3764): Make sender_id required.  Needs a migration to drop Outbox
+  //   values that lack it; which is fine once the release that adds it has
+  //   been out for a few weeks.
+  //   (Also drop the hack line about it in MessageLike.)
+  sender_id?: UserId,
+
+  /* eslint-disable flowtype/generic-spacing */
+  ...SubsetProperties<
+    Message,
+    {|
+      avatar_url: mixed,
+      content: mixed,
+      display_recipient: mixed,
+      id: mixed,
+      reactions: mixed,
+      sender_email: mixed,
+      sender_full_name: mixed,
+      subject: mixed,
+      timestamp: mixed,
+      type: mixed,
+    |},
+  >,
+|}>;
 
 /**
  * MessageLike: Imprecise alternative to `Message | Outbox`.
@@ -195,7 +210,7 @@ export type Outbox = {|
  * Flow reasonably dispermits certain classes of access on union types. In
  * particular,
  * ```
- * const { sender_id } = (message: Message | Outbox);  // error
+ * const { match_content } = (message: Message | Outbox);  // error
  * ```
  * is not allowed. However, as long as you're prepared to handle values of
  * `undefined`, it's both JavaScript-legal to do so and occasionally convenient.
@@ -204,7 +219,7 @@ export type Outbox = {|
  * subtype of `Message | Outbox`, but which Flow will permit us to directly (and
  * soundly) destructure certain `Message`-only fields from:
  * ```
- * const { sender_id } = (message: MessageLike);  // ok!
+ * const { match_content } = (message: MessageLike);  // ok!
  * ```
  *
  * * Note: `MessageLike` <: `Message | Outbox`, but the converse does not hold.
@@ -222,6 +237,7 @@ export type MessageLike =
   | $ReadOnly<{
       // $Shape<T> is unsound, per Flow docs, but $ReadOnly<$Shape<T>> is not
       ...$Shape<{ [$Keys<Message>]: void }>,
+      sender_id?: UserId, // TODO: Drop this once required in Outbox.
       ...Outbox,
     }>;
 
@@ -273,7 +289,7 @@ export type RenderedTimeDescriptor = {|
   type: 'time',
   key: number | string,
   timestamp: number,
-  firstMessage: Message | Outbox,
+  subsequentMessage: Message | Outbox,
 |};
 
 export type RenderedMessageDescriptor = {|
@@ -283,9 +299,9 @@ export type RenderedMessageDescriptor = {|
   isBrief: boolean,
 |};
 
-export type RenderedSectionDescriptor = {|
+export type HtmlPieceDescriptor = {|
   key: string | number,
-  message: Message | Outbox | {||},
+  message: Message | Outbox | null,
   data: $ReadOnlyArray<RenderedMessageDescriptor | RenderedTimeDescriptor>,
 |};
 
@@ -295,24 +311,26 @@ export type TimingItemType = {|
   endMs: number,
 |};
 
-export type NamedUser = {|
-  id: number,
-  email: string,
-  full_name: string,
-|};
-
-export type TabNavigationOptionsPropsType = {|
-  isFocussed: boolean,
-  tintColor: string,
-|};
-
 /**
  * Summary of a PM conversation (either 1:1 or group PMs).
  */
 export type PmConversationData = {|
-  ids: string,
+  /**
+   * A comma-separated (numerically-)sorted sequence of the IDs of the users
+   * involved in this conversation.  Omits the self-user just if there are
+   * exactly two recipients.
+   *
+   * (This unusual specification is intended to simultaneously match the
+   * disjoint key-spaces of `unreadPms` and `unreadHuddles`.)
+   */
+  key: string,
+
+  keyRecipients: PmKeyUsers,
+
+  /** The most recent message in this conversation. */
   msgId: number,
-  recipients: string,
+
+  /** The count of unread messages in this conversation. */
   unread: number,
 |};
 

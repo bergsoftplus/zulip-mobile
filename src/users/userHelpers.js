@@ -1,19 +1,19 @@
 /* @flow strict-local */
 import uniqby from 'lodash.uniqby';
 
-import type { UserPresence, User, UserGroup, PresenceState } from '../types';
+import type { UserPresence, User, UserId, UserGroup, PresenceState, UserOrBot } from '../types';
 import { ensureUnreachable } from '../types';
-import { NULL_USER } from '../nullObjects';
 import { statusFromPresence } from '../utils/presence';
+import { makeUserId } from '../api/idTypes';
 
 type UsersByStatus = {|
-  active: User[],
-  idle: User[],
-  offline: User[],
-  unavailable: User[],
+  active: UserOrBot[],
+  idle: UserOrBot[],
+  offline: UserOrBot[],
+  unavailable: UserOrBot[],
 |};
 
-export const groupUsersByStatus = (users: User[], presences: PresenceState): UsersByStatus => {
+export const groupUsersByStatus = (users: UserOrBot[], presences: PresenceState): UsersByStatus => {
   const groupedUsers = { active: [], idle: [], offline: [], unavailable: [] };
   users.forEach(user => {
     const status = statusFromPresence(presences[user.email]);
@@ -37,41 +37,49 @@ const statusOrder = (presence: UserPresence): number => {
   }
 };
 
-export const sortUserList = (users: User[], presences: PresenceState): User[] =>
+export const sortUserList = (users: UserOrBot[], presences: PresenceState): UserOrBot[] =>
   [...users].sort(
     (x1, x2) =>
       statusOrder(presences[x1.email]) - statusOrder(presences[x2.email])
       || x1.full_name.toLowerCase().localeCompare(x2.full_name.toLowerCase()),
   );
 
-export const filterUserList = (users: User[], filter: string = '', ownEmail: ?string): User[] =>
-  users.length > 0
-    ? users.filter(
-        user =>
-          user.email !== ownEmail
-          && (filter === ''
-            || user.full_name.toLowerCase().includes(filter.toLowerCase())
-            || user.email.toLowerCase().includes(filter.toLowerCase())),
-      )
-    : users;
+export type AutocompleteOption = { user_id: UserId, email: string, full_name: string, ... };
+
+export const filterUserList = (
+  users: $ReadOnlyArray<UserOrBot>,
+  filter: string = '',
+  ownUserId: ?UserId,
+): UserOrBot[] =>
+  users.filter(
+    user =>
+      user.user_id !== ownUserId
+      && (filter === ''
+        || user.full_name.toLowerCase().includes(filter.toLowerCase())
+        || user.email.toLowerCase().includes(filter.toLowerCase())),
+  );
 
 export const sortAlphabetically = (users: User[]): User[] =>
   [...users].sort((x1, x2) => x1.full_name.toLowerCase().localeCompare(x2.full_name.toLowerCase()));
 
-export const filterUserStartWith = (users: User[], filter: string = '', ownEmail: string): User[] =>
+export const filterUserStartWith = (
+  users: $ReadOnlyArray<AutocompleteOption>,
+  filter: string = '',
+  ownUserId: UserId,
+): $ReadOnlyArray<AutocompleteOption> =>
   users.filter(
     user =>
-      user.email !== ownEmail && user.full_name.toLowerCase().startsWith(filter.toLowerCase()),
+      user.user_id !== ownUserId && user.full_name.toLowerCase().startsWith(filter.toLowerCase()),
   );
 
 export const filterUserByInitials = (
-  users: User[],
+  users: $ReadOnlyArray<AutocompleteOption>,
   filter: string = '',
-  ownEmail: string,
-): User[] =>
+  ownUserId: UserId,
+): $ReadOnlyArray<AutocompleteOption> =>
   users.filter(
     user =>
-      user.email !== ownEmail
+      user.user_id !== ownUserId
       && user.full_name
         .replace(/(\s|[a-z])/g, '')
         .toLowerCase()
@@ -79,44 +87,49 @@ export const filterUserByInitials = (
   );
 
 export const filterUserThatContains = (
-  users: User[],
+  users: $ReadOnlyArray<AutocompleteOption>,
   filter: string = '',
-  ownEmail: string,
-): User[] =>
+  ownUserId: UserId,
+): $ReadOnlyArray<AutocompleteOption> =>
   users.filter(
-    user => user.email !== ownEmail && user.full_name.toLowerCase().includes(filter.toLowerCase()),
+    user =>
+      user.user_id !== ownUserId && user.full_name.toLowerCase().includes(filter.toLowerCase()),
   );
 
 export const filterUserMatchesEmail = (
-  users: User[],
+  users: $ReadOnlyArray<AutocompleteOption>,
   filter: string = '',
-  ownEmail: string,
-): User[] =>
+  ownUserId: UserId,
+): $ReadOnlyArray<AutocompleteOption> =>
   users.filter(
-    user => user.email !== ownEmail && user.email.toLowerCase().includes(filter.toLowerCase()),
+    user => user.user_id !== ownUserId && user.email.toLowerCase().includes(filter.toLowerCase()),
   );
 
-export const getUniqueUsers = (users: User[]): User[] => uniqby(users, 'email');
+export const getUniqueUsers = (
+  users: $ReadOnlyArray<AutocompleteOption>,
+): $ReadOnlyArray<AutocompleteOption> => uniqby(users, 'email');
 
-export const getUsersAndWildcards = (users: User[]) => [
-  { ...NULL_USER, full_name: 'all', email: '(Notify everyone)' },
-  { ...NULL_USER, full_name: 'everyone', email: '(Notify everyone)' },
+export const getUsersAndWildcards = (users: $ReadOnlyArray<AutocompleteOption>) => [
+  // TODO stop using makeUserId on these fake "user IDs"; have some
+  //   more-explicit UI logic instead of these pseudo-users.
+  { user_id: makeUserId(-1), full_name: 'all', email: '(Notify everyone)' },
+  { user_id: makeUserId(-2), full_name: 'everyone', email: '(Notify everyone)' },
   ...users,
 ];
 
 export const getAutocompleteSuggestion = (
-  users: User[],
+  users: $ReadOnlyArray<AutocompleteOption>,
   filter: string = '',
-  ownEmail: string,
-): User[] => {
+  ownUserId: UserId,
+): $ReadOnlyArray<AutocompleteOption> => {
   if (users.length === 0) {
     return users;
   }
   const allAutocompleteOptions = getUsersAndWildcards(users);
-  const startWith = filterUserStartWith(allAutocompleteOptions, filter, ownEmail);
-  const initials = filterUserByInitials(allAutocompleteOptions, filter, ownEmail);
-  const contains = filterUserThatContains(allAutocompleteOptions, filter, ownEmail);
-  const matchesEmail = filterUserMatchesEmail(users, filter, ownEmail);
+  const startWith = filterUserStartWith(allAutocompleteOptions, filter, ownUserId);
+  const initials = filterUserByInitials(allAutocompleteOptions, filter, ownUserId);
+  const contains = filterUserThatContains(allAutocompleteOptions, filter, ownUserId);
+  const matchesEmail = filterUserMatchesEmail(users, filter, ownUserId);
   return getUniqueUsers([...startWith, ...initials, ...contains, ...matchesEmail]);
 };
 

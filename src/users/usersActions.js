@@ -1,12 +1,12 @@
 /* @flow strict-local */
 import * as typing_status from '@zulip/shared/js/typing_status';
 
-import type { Auth, Dispatch, GetState, GlobalState, Narrow } from '../types';
+import type { Auth, Dispatch, GetState, GlobalState, Narrow, UserId } from '../types';
 import * as api from '../api';
 import { PRESENCE_RESPONSE } from '../actionConstants';
 import { getAuth, tryGetAuth, getServerVersion } from '../selectors';
-import { isPrivateOrGroupNarrow, caseNarrowPartial } from '../utils/narrow';
-import { getAllUsersByEmail, getUserForId } from './userSelectors';
+import { isPmNarrow, userIdsOfPmNarrow } from '../utils/narrow';
+import { getUserForId } from './userSelectors';
 import { ZulipVersion } from '../utils/zulipVersion';
 
 export const reportPresence = (isActive: boolean = true, newUserInput: boolean = false) => async (
@@ -46,11 +46,11 @@ const typingWorker = (state: GlobalState) => {
   return {
     get_current_time: () => new Date().getTime(),
 
-    notify_server_start: (user_ids_array: number[]) => {
+    notify_server_start: (user_ids_array: $ReadOnlyArray<UserId>) => {
       api.typing(auth, getRecipients(user_ids_array), 'start');
     },
 
-    notify_server_stop: (user_ids_array: number[]) => {
+    notify_server_stop: (user_ids_array: $ReadOnlyArray<UserId>) => {
       api.typing(auth, getRecipients(user_ids_array), 'stop');
     },
   };
@@ -60,21 +60,11 @@ export const sendTypingStart = (narrow: Narrow) => async (
   dispatch: Dispatch,
   getState: GetState,
 ) => {
-  if (!isPrivateOrGroupNarrow(narrow)) {
+  if (!isPmNarrow(narrow)) {
     return;
   }
 
-  const usersByEmail = getAllUsersByEmail(getState());
-  const recipientIds = caseNarrowPartial(narrow, {
-    pm: email => [email],
-    groupPm: emails => emails,
-  }).map(email => {
-    const user = usersByEmail.get(email);
-    if (!user) {
-      throw new Error('unknown user');
-    }
-    return user.user_id;
-  });
+  const recipientIds = userIdsOfPmNarrow(narrow);
   typing_status.update(typingWorker(getState()), recipientIds);
 };
 
@@ -84,7 +74,7 @@ export const sendTypingStop = (narrow: Narrow) => async (
   dispatch: Dispatch,
   getState: GetState,
 ) => {
-  if (!isPrivateOrGroupNarrow(narrow)) {
+  if (!isPmNarrow(narrow)) {
     return;
   }
 

@@ -1,31 +1,12 @@
 /* @flow strict-local */
 import {
-  getActiveUsersByEmail,
   getAllUsersByEmail,
   getAllUsersById,
   getUsersById,
-  getUsersSansMe,
   getUserForId,
-  getUserForEmail,
   getUserIsActive,
 } from '../userSelectors';
 import * as eg from '../../__tests__/lib/exampleData';
-
-describe('getActiveUsers', () => {
-  test('return users, bots, map by email and do not include inactive users', () => {
-    const state = eg.reduxState({
-      users: [eg.selfUser],
-      realm: {
-        ...eg.baseReduxState.realm,
-        crossRealmBots: [eg.crossRealmBot],
-        nonActiveUsers: [eg.otherUser],
-      },
-    });
-    expect(getActiveUsersByEmail(state)).toEqual(
-      new Map([[eg.selfUser.email, eg.selfUser], [eg.crossRealmBot.email, eg.crossRealmBot]]),
-    );
-  });
-});
 
 describe('getAllUsersByEmail', () => {
   test('return users mapped by their email', () => {
@@ -95,16 +76,6 @@ describe('getUsersById', () => {
   });
 });
 
-describe('getUsersSansMe', () => {
-  test('returns all users except current user', () => {
-    const state = eg.reduxState({
-      users: [eg.selfUser, eg.otherUser],
-      realm: eg.realmState({ email: eg.selfUser.email }),
-    });
-    expect(getUsersSansMe(state)).toEqual([eg.otherUser]);
-  });
-});
-
 describe('getUserForId', () => {
   const state = eg.reduxState({
     users: [eg.selfUser],
@@ -127,33 +98,6 @@ describe('getUserForId', () => {
 
   test('returns the user if it is a cross realm bot', () => {
     expect(getUserForId(state, state.realm.crossRealmBots[0].user_id)).toEqual(
-      state.realm.crossRealmBots[0],
-    );
-  });
-});
-
-describe('getUserForEmail', () => {
-  const state = eg.reduxState({
-    users: [eg.selfUser],
-    realm: {
-      ...eg.baseReduxState.realm,
-      crossRealmBots: [eg.crossRealmBot],
-      nonActiveUsers: [eg.makeUser(), eg.makeUser()],
-    },
-  });
-
-  test('returns the user if it has not been deactivated', () => {
-    expect(getUserForEmail(state, state.users[0].email)).toEqual(state.users[0]);
-  });
-
-  test('returns the user if it has been deactivated', () => {
-    expect(getUserForEmail(state, state.realm.nonActiveUsers[0].email)).toEqual(
-      state.realm.nonActiveUsers[0],
-    );
-  });
-
-  test('returns the user if it is a cross realm bot', () => {
-    expect(getUserForEmail(state, state.realm.crossRealmBots[0].email)).toEqual(
       state.realm.crossRealmBots[0],
     );
   });

@@ -1,15 +1,28 @@
 /* @flow strict-local */
 import React, { PureComponent } from 'react';
 
-import type { Dispatch, User } from '../types';
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import * as NavigationService from '../nav/NavigationService';
+import type { Dispatch, UserId, UserOrBot } from '../types';
 import { connect } from '../react-redux';
 import { Screen } from '../common';
 import { doNarrow, navigateBack } from '../actions';
-import { groupNarrow } from '../utils/narrow';
+import { pmNarrowFromUsers } from '../utils/narrow';
+import { pmKeyRecipientsFromUsers } from '../utils/recipient';
 import UserPickerCard from '../user-picker/UserPickerCard';
+import { getOwnUserId } from '../users/userSelectors';
+
+type SelectorProps = {|
+  +ownUserId: UserId,
+|};
 
 type Props = $ReadOnly<{|
+  navigation: AppNavigationProp<'create-group'>,
+  route: RouteProp<'create-group', void>,
+
   dispatch: Dispatch,
+  ...SelectorProps,
 |}>;
 
 type State = {|
@@ -23,12 +36,10 @@ class CreateGroupScreen extends PureComponent<Props, State> {
 
   handleFilterChange = (filter: string) => this.setState({ filter });
 
-  handleCreateGroup = (selected: User[]) => {
-    const { dispatch } = this.props;
-
-    const recipients = selected.map(user => user.email);
-    dispatch(navigateBack());
-    dispatch(doNarrow(groupNarrow(recipients)));
+  handleCreateGroup = (selected: UserOrBot[]) => {
+    const { dispatch, ownUserId } = this.props;
+    NavigationService.dispatch(navigateBack());
+    dispatch(doNarrow(pmNarrowFromUsers(pmKeyRecipientsFromUsers(selected, ownUserId))));
   };
 
   render() {
@@ -41,4 +52,6 @@ class CreateGroupScreen extends PureComponent<Props, State> {
   }
 }
 
-export default connect<{||}, _, _>()(CreateGroupScreen);
+export default connect<SelectorProps, _, _>(state => ({
+  ownUserId: getOwnUserId(state),
+}))(CreateGroupScreen);

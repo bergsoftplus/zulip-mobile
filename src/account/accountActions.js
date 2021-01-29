@@ -1,5 +1,6 @@
 /* @flow strict-local */
-import type { Action } from '../types';
+import * as NavigationService from '../nav/NavigationService';
+import type { Action, Dispatch, GetState } from '../types';
 import {
   ACCOUNT_SWITCH,
   REALM_ADD,
@@ -7,12 +8,18 @@ import {
   LOGIN_SUCCESS,
   LOGOUT,
 } from '../actionConstants';
+import { resetToAccountPicker, resetToLoading } from '../nav/navActions';
 import type { ZulipVersion } from '../utils/zulipVersion';
 
-export const switchAccount = (index: number): Action => ({
+const accountSwitchPlain = (index: number): Action => ({
   type: ACCOUNT_SWITCH,
   index,
 });
+
+export const accountSwitch = (index: number) => (dispatch: Dispatch, getState: GetState) => {
+  NavigationService.dispatch(resetToLoading());
+  dispatch(accountSwitchPlain(index));
+};
 
 export const realmAdd = (
   realm: URL,
@@ -30,13 +37,26 @@ export const removeAccount = (index: number): Action => ({
   index,
 });
 
-export const loginSuccess = (realm: URL, email: string, apiKey: string): Action => ({
+const loginSuccessPlain = (realm: URL, email: string, apiKey: string): Action => ({
   type: LOGIN_SUCCESS,
   realm,
   email,
   apiKey,
 });
 
-export const logout = (): Action => ({
+export const loginSuccess = (realm: URL, email: string, apiKey: string) => (
+  dispatch: Dispatch,
+  getState: GetState,
+) => {
+  NavigationService.dispatch(resetToLoading());
+  dispatch(loginSuccessPlain(realm, email, apiKey));
+};
+
+const logoutPlain = (): Action => ({
   type: LOGOUT,
 });
+
+export const logout = () => async (dispatch: Dispatch, getState: GetState) => {
+  NavigationService.dispatch(resetToAccountPicker());
+  dispatch(logoutPlain());
+};

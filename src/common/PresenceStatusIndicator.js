@@ -3,12 +3,12 @@ import React, { PureComponent } from 'react';
 import { View } from 'react-native';
 import type { ViewStyleProp } from 'react-native/Libraries/StyleSheet/StyleSheet';
 
-import type { PresenceState, User, UserStatusMapObject, Dispatch } from '../types';
+import type { PresenceState, UserOrBot, UserStatusMapObject, Dispatch } from '../types';
 import { createStyleSheet } from '../styles';
 import { connect } from '../react-redux';
 import { statusFromPresenceAndUserStatus } from '../utils/presence';
 import { getPresence, getUserStatus } from '../selectors';
-import { getUsersByEmail } from '../users/userSelectors';
+import { getAllUsersByEmail } from '../users/userSelectors';
 import { ensureUnreachable } from '../types';
 
 const styles = createStyleSheet({
@@ -16,6 +16,16 @@ const styles = createStyleSheet({
     width: 12,
     height: 12,
     borderRadius: 6,
+  },
+  maybeOpaqueBackgroundWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  opaqueBackground: {
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
+    backgroundColor: 'white',
   },
   active: {
     backgroundColor: 'hsl(106, 74%, 44%)',
@@ -49,22 +59,39 @@ const styles = createStyleSheet({
   },
 });
 
-const PresenceStatusIndicatorActive = ({ style }: { style: ViewStyleProp }) => (
-  <View style={[styles.active, styles.common, style]} />
-);
+function MaybeOpaqueBackgroundWrapper(
+  props: $ReadOnly<{|
+    useOpaqueBackground: boolean,
+    style?: ViewStyleProp,
+    children: React$Node,
+  |}>,
+) {
+  const { useOpaqueBackground, style, children } = props;
+  return (
+    <View
+      style={[
+        styles.maybeOpaqueBackgroundWrapper,
+        useOpaqueBackground ? styles.opaqueBackground : undefined,
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
 
-const PresenceStatusIndicatorIdle = ({ style }: { style: ViewStyleProp }) => (
-  <View style={[styles.idleWrapper, styles.common, style]}>
+const PresenceStatusIndicatorActive = () => <View style={[styles.active, styles.common]} />;
+
+const PresenceStatusIndicatorIdle = () => (
+  <View style={[styles.idleWrapper, styles.common]}>
     <View style={styles.idleHalfCircle} />
   </View>
 );
 
-const PresenceStatusIndicatorOffline = ({ style }: { style: ViewStyleProp }) => (
-  <View style={[styles.offline, styles.common, style]} />
-);
+const PresenceStatusIndicatorOffline = () => <View style={[styles.offline, styles.common]} />;
 
-const PresenceStatusIndicatorUnavailable = ({ style }: { style: ViewStyleProp }) => (
-  <View style={[styles.unavailableWrapper, styles.common, style]}>
+const PresenceStatusIndicatorUnavailable = () => (
+  <View style={[styles.unavailableWrapper, styles.common]}>
     <View style={styles.unavailableLine} />
   </View>
 );
@@ -72,7 +99,7 @@ const PresenceStatusIndicatorUnavailable = ({ style }: { style: ViewStyleProp })
 type PropsFromConnect = {|
   dispatch: Dispatch,
   presence: PresenceState,
-  usersByEmail: Map<string, User>,
+  allUsersByEmail: Map<string, UserOrBot>,
   userStatus: UserStatusMapObject,
 |};
 
@@ -81,6 +108,7 @@ type Props = $ReadOnly<{|
   style?: ViewStyleProp,
   email: string,
   hideIfOffline: boolean,
+  useOpaqueBackground: boolean,
 |}>;
 
 /**
@@ -95,10 +123,18 @@ type Props = $ReadOnly<{|
  */
 class PresenceStatusIndicator extends PureComponent<Props> {
   render() {
-    const { email, presence, style, hideIfOffline, usersByEmail, userStatus } = this.props;
+    const {
+      email,
+      presence,
+      style,
+      hideIfOffline,
+      allUsersByEmail,
+      userStatus,
+      useOpaqueBackground,
+    } = this.props;
 
     const userPresence = presence[email];
-    const user = usersByEmail.get(email);
+    const user = allUsersByEmail.get(email);
 
     if (!user || !userPresence || !userPresence.aggregated) {
       return null;
@@ -112,16 +148,32 @@ class PresenceStatusIndicator extends PureComponent<Props> {
 
     switch (status) {
       case 'active':
-        return <PresenceStatusIndicatorActive style={style} />;
+        return (
+          <MaybeOpaqueBackgroundWrapper style={style} useOpaqueBackground={useOpaqueBackground}>
+            <PresenceStatusIndicatorActive />
+          </MaybeOpaqueBackgroundWrapper>
+        );
 
       case 'idle':
-        return <PresenceStatusIndicatorIdle style={style} />;
+        return (
+          <MaybeOpaqueBackgroundWrapper style={style} useOpaqueBackground={useOpaqueBackground}>
+            <PresenceStatusIndicatorIdle />
+          </MaybeOpaqueBackgroundWrapper>
+        );
 
       case 'offline':
-        return <PresenceStatusIndicatorOffline style={style} />;
+        return (
+          <MaybeOpaqueBackgroundWrapper style={style} useOpaqueBackground={useOpaqueBackground}>
+            <PresenceStatusIndicatorOffline />
+          </MaybeOpaqueBackgroundWrapper>
+        );
 
       case 'unavailable':
-        return <PresenceStatusIndicatorUnavailable style={style} />;
+        return (
+          <MaybeOpaqueBackgroundWrapper style={style} useOpaqueBackground={useOpaqueBackground}>
+            <PresenceStatusIndicatorUnavailable />
+          </MaybeOpaqueBackgroundWrapper>
+        );
 
       default:
         ensureUnreachable(status);
@@ -132,6 +184,6 @@ class PresenceStatusIndicator extends PureComponent<Props> {
 
 export default connect(state => ({
   presence: getPresence(state),
-  usersByEmail: getUsersByEmail(state),
+  allUsersByEmail: getAllUsersByEmail(state),
   userStatus: getUserStatus(state),
 }))(PresenceStatusIndicator);

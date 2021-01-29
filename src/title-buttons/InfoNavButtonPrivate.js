@@ -1,37 +1,26 @@
 /* @flow strict-local */
+import React from 'react';
 
-import React, { PureComponent } from 'react';
-
-import type { Dispatch, Narrow } from '../types';
-import { connect } from '../react-redux';
+import type { UserId } from '../types';
+import * as NavigationService from '../nav/NavigationService';
 import NavButton from '../nav/NavButton';
 import { navigateToAccountDetails } from '../actions';
-import { getUserForEmail } from '../users/userSelectors';
-
-type SelectorProps = $ReadOnly<{|
-  userId: number,
-|}>;
 
 type Props = $ReadOnly<{|
-  dispatch: Dispatch,
-  narrow: Narrow,
   color: string,
-  ...SelectorProps,
+  userId: UserId,
 |}>;
 
-class InfoNavButtonPrivate extends PureComponent<Props> {
-  handlePress = () => {
-    const { dispatch, userId } = this.props;
-    dispatch(navigateToAccountDetails(userId));
-  };
-
-  render() {
-    const { color } = this.props;
-
-    return <NavButton name="info" color={color} onPress={this.handlePress} />;
-  }
+export default function InfoNavButtonPrivate(props: Props) {
+  const { color } = props;
+  return (
+    <NavButton
+      name="info"
+      color={color}
+      onPress={() => {
+        const { userId } = props;
+        NavigationService.dispatch(navigateToAccountDetails(userId));
+      }}
+    />
+  );
 }
-
-export default connect<SelectorProps, _, _>((state, props) => ({
-  userId: getUserForEmail(state, props.narrow[0].operand).user_id,
-}))(InfoNavButtonPrivate);

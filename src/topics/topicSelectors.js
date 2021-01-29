@@ -2,22 +2,19 @@
 import { createSelector } from 'reselect';
 
 import type {
-  MuteState,
   Narrow,
   GlobalState,
   Selector,
-  Stream,
   StreamsState,
-  StreamUnreadItem,
-  Topic,
   TopicExtended,
   TopicsState,
 } from '../types';
-import { getMute, getStreams, getTopics, getUnreadStreams } from '../directSelectors';
+import { getMute, getStreams, getTopics } from '../directSelectors';
+import { getUnreadStreams } from '../unread/unreadModel';
 import { getShownMessagesForNarrow } from '../chat/narrowsSelectors';
 import { getStreamsById } from '../subscriptions/subscriptionSelectors';
 import { NULL_ARRAY } from '../nullObjects';
-import { isStreamNarrow } from '../utils/narrow';
+import { isStreamNarrow, streamNameOfNarrow } from '../utils/narrow';
 
 export const getTopicsForNarrow: Selector<string[], Narrow> = createSelector(
   (state, narrow) => narrow,
@@ -27,8 +24,14 @@ export const getTopicsForNarrow: Selector<string[], Narrow> = createSelector(
     if (!isStreamNarrow(narrow)) {
       return NULL_ARRAY;
     }
-    const stream = streams.find(x => x.name === narrow[0].operand);
+    const streamName = streamNameOfNarrow(narrow);
 
+    // TODO (#4333): Look for the stream by its ID, not its name. One
+    // expected consequence of the current code is that
+    // `TopicAutocomplete` would stop showing any topics, if someone
+    // changed the stream name while you were looking at
+    // `TopicAutocomplete`.
+    const stream = streams.find(x => x.name === streamName);
     if (!stream || !topics[stream.stream_id]) {
       return NULL_ARRAY;
     }
@@ -42,12 +45,7 @@ export const getTopicsForStream: Selector<?(TopicExtended[]), number> = createSe
   state => getMute(state),
   (state, streamId) => getStreamsById(state).get(streamId),
   state => getUnreadStreams(state),
-  (
-    topicList: Topic[],
-    mute: MuteState,
-    stream: Stream | void,
-    unreadStreams: StreamUnreadItem[],
-  ) => {
+  (topicList, mute, stream, unreadStreams) => {
     if (!topicList || !stream) {
       return undefined;
     }

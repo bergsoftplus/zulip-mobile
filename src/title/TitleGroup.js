@@ -1,58 +1,39 @@
 /* @flow strict-local */
 
-import React, { PureComponent } from 'react';
+import React from 'react';
 import { View } from 'react-native';
 
-import type { Dispatch, UserOrBot, Narrow } from '../types';
+import type { UserId } from '../types';
+import * as NavigationService from '../nav/NavigationService';
 import styles, { createStyleSheet } from '../styles';
-import { connect } from '../react-redux';
-import { UserAvatarWithPresence } from '../common';
-import { getRecipientsInGroupNarrow } from '../selectors';
+import { UserAvatarWithPresenceById } from '../common/UserAvatarWithPresence';
 import { navigateToAccountDetails } from '../nav/navActions';
 
-type SelectorProps = $ReadOnly<{|
-  recipients: UserOrBot[],
-|}>;
-
 type Props = $ReadOnly<{|
-  narrow: Narrow,
-
-  dispatch: Dispatch,
-  ...SelectorProps,
+  userIds: $ReadOnlyArray<UserId>,
 |}>;
 
-class TitleGroup extends PureComponent<Props> {
-  handlePress = (user: UserOrBot) => {
-    const { dispatch } = this.props;
-    dispatch(navigateToAccountDetails(user.user_id));
-  };
+const componentStyles = createStyleSheet({
+  titleAvatar: {
+    marginRight: 16,
+  },
+});
 
-  styles = createStyleSheet({
-    titleAvatar: {
-      marginRight: 16,
-    },
-  });
-
-  render() {
-    const { recipients } = this.props;
-
-    return (
-      <View style={styles.navWrapper}>
-        {recipients.map((user, index) => (
-          <View key={user.email} style={this.styles.titleAvatar}>
-            <UserAvatarWithPresence
-              onPress={() => this.handlePress(user)}
-              size={32}
-              avatarUrl={user.avatar_url}
-              email={user.email}
-            />
-          </View>
-        ))}
-      </View>
-    );
-  }
+export default function TitleGroup(props: Props) {
+  const { userIds } = props;
+  return (
+    <View style={styles.navWrapper}>
+      {userIds.map(userId => (
+        <View key={userId} style={componentStyles.titleAvatar}>
+          <UserAvatarWithPresenceById
+            onPress={() => {
+              NavigationService.dispatch(navigateToAccountDetails(userId));
+            }}
+            size={32}
+            userId={userId}
+          />
+        </View>
+      ))}
+    </View>
+  );
 }
-
-export default connect<SelectorProps, _, _>((state, props) => ({
-  recipients: getRecipientsInGroupNarrow(state, props.narrow),
-}))(TitleGroup);

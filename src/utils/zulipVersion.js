@@ -16,8 +16,9 @@ type VersionElements = {
  * Used on a Zulip version received from the server with /server_settings
  * * to compare it to a threshold version where a feature was added on the
  *   server: use .isAtLeast
- * * to report it to Sentry: use .raw for its raw form, and .loggingArray
- *   for a form handy for event aggregation.
+ * * to report it to Sentry: use .raw for its raw form, and .elements
+ *   for the data needed to make other tags to help with event
+ *   aggregation.
  *
  * The ZulipVersion instance itself cannot be persisted in ZulipAsyncStorage or
  * sent to Sentry because it isn't serializable. Instead, persist the raw
@@ -26,32 +27,33 @@ type VersionElements = {
 export class ZulipVersion {
   _raw: string;
   _comparisonArray: number[];
-  _loggingArray: number[];
+  _elements: VersionElements;
 
   constructor(raw: string) {
     this._raw = raw;
-    this._comparisonArray = this._getComparisonArray(raw);
-    this._loggingArray = this._getLoggingArray(raw);
+    const elements = ZulipVersion._getElements(raw);
+    this._comparisonArray = ZulipVersion._getComparisonArray(elements);
+    this._elements = elements;
   }
 
   /**
    * The raw version string that was passed to the constructor.
    */
-  raw = () => this._raw;
+  raw() {
+    return this._raw;
+  }
 
   /**
    * Data to be sent to Sentry to help with event aggregation.
-   *
-   * A [major, minor, patch] array where missing values
-   * are replaced with zero; everything beyond major, minor, patch
-   * is ignored.
    */
-  loggingArray = () => this._loggingArray;
+  elements() {
+    return this._elements;
+  }
 
   /**
    * True if this version is later than or equal to a given threshold.
    */
-  isAtLeast = (otherZulipVersion: string | ZulipVersion) => {
+  isAtLeast(otherZulipVersion: string | ZulipVersion) {
     const otherZulipVersionInstance =
       otherZulipVersion instanceof ZulipVersion
         ? otherZulipVersion
@@ -68,12 +70,12 @@ export class ZulipVersion {
     // It's a tie so far, and one of the arrays has ended. The array with
     // further elements wins.
     return this._comparisonArray.length >= otherComparisonArray.length;
-  };
+  }
 
   /**
-   * Parse the raw string into a VersionElements for _getComparisonArray.
+   * Parse the raw string into a VersionElements.
    */
-  _getElements = (raw: string): VersionElements => {
+  static _getElements(raw: string): VersionElements {
     const result: VersionElements = {
       major: undefined,
       minor: undefined,
@@ -112,13 +114,13 @@ export class ZulipVersion {
     }
 
     return result;
-  };
+  }
 
   /**
    * Compute a number[] to be used in .isAtLeast comparisons.
    */
-  _getComparisonArray = (raw: string): number[] => {
-    const { major, minor, patch, flag, numCommits } = this._getElements(raw);
+  static _getComparisonArray(elements: VersionElements): number[] {
+    const { major, minor, patch, flag, numCommits } = elements;
     const result: number[] = [];
 
     // Push major, minor, and patch first, then trim trailing zeroes.
@@ -151,10 +153,5 @@ export class ZulipVersion {
     }
 
     return result;
-  };
-
-  _getLoggingArray = (raw: string): number[] => {
-    const { major, minor, patch } = this._getElements(raw);
-    return [major, minor, patch].map(e => (e !== undefined ? e : 0));
-  };
+  }
 }

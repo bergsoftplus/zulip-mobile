@@ -7,31 +7,30 @@
  *
  * @flow strict-local
  */
-
+import type Immutable from 'immutable';
 import type { InputSelector } from 'reselect';
 
 import type { Account, Outbox } from './types';
-import type { Action, NavigationAction } from './actionTypes';
+import type { Action } from './actionTypes';
 import type {
   Topic,
-  HuddlesUnreadItem,
   Message,
   MuteTuple,
-  PmsUnreadItem,
   CrossRealmBot,
   RealmEmojiById,
   RealmFilter,
-  Narrow,
   Stream,
-  StreamUnreadItem,
   Subscription,
   User,
   UserGroup,
+  UserId,
   UserPresence,
   UserStatusMapObject,
 } from './api/apiTypes';
-
+import type { Narrow } from './utils/narrow';
 import type { SessionState } from './session/sessionReducer';
+import type { PmConversationsState } from './pm-conversations/pmConversationsModel';
+import type { UnreadState } from './unread/unreadModelTypes';
 
 export type * from './actionTypes';
 
@@ -70,17 +69,24 @@ export type CaughtUp = {|
 /**
  * Info about how completely we know the messages in each narrow.
  *
- * The keys correspond to the keys in `MessagesState`.
+ * The keys correspond to the keys in `NarrowsState`.
  *
  * See `CaughtUp` for details on what each value means.
  */
-export type CaughtUpState = {|
+export type CaughtUpState = {
+  // TODO(flow-v0.126): Should be exact. See note in src/utils/jsonable.js.
   [narrow: string]: CaughtUp,
-|};
+};
 
-export type DraftsState = {|
+/**
+ * The user's draft message, if any, in each conversation.
+ *
+ * The keys correspond to the keys in `NarrowsState`.
+ */
+export type DraftsState = {
+  // TODO(flow-v0.126): Should be exact. See note in src/utils/jsonable.js.
   [narrow: string]: string,
-|};
+};
 
 export type Fetching = {|
   older: boolean,
@@ -90,9 +96,12 @@ export type Fetching = {|
 /**
  * Info about which narrows we're actively fetching more messages from.
  *
+ * The keys correspond to the keys in `NarrowsState`.
+ *
  * See also: `CaughtUpState`, `NarrowsState`.
  */
 export type FetchingState = {
+  // TODO(flow-v0.126): Should be exact. See note in src/utils/jsonable.js.
   [narrow: string]: Fetching,
 };
 
@@ -153,11 +162,7 @@ export type FlagName = $Keys<FlagsState>;
  * See also `NarrowsState`, which is an index on this data that identifies
  * messages belonging to a given narrow.
  */
-export type MessagesState = {
-  // MessagesState should be exact; we're waiting for Flow v0.126.0. See note
-  // in src/utils/jsonable.js.
-  [id: number]: $Exact<Message>,
-};
+export type MessagesState = Immutable.Map<number, Message>;
 
 export type MigrationsState = {|
   version?: string,
@@ -173,7 +178,7 @@ export type MuteState = MuteTuple[];
  * to; see `MessagesState` for more context.  The data here should
  * correspond exactly to the data in `MessagesState`.
  *
- * Keys are `JSON.stringify`-encoded `Narrow` objects.
+ * Keys are those given by `keyFromNarrow`.
  * Values are sorted lists of message IDs.
  *
  * See also:
@@ -183,9 +188,7 @@ export type MuteState = MuteTuple[];
  *  * `FetchingState` for information about which narrows we're actively
  *    fetching more messages from.
  */
-export type NarrowsState = {
-  [narrow: string]: number[],
-};
+export type NarrowsState = Immutable.Map<string, number[]>;
 
 export type NavigationRouteState = {
   key: string,
@@ -195,13 +198,6 @@ export type NavigationRouteState = {
     narrow?: Narrow,
   },
 };
-
-export type NavigationState = {|
-  index: number,
-  isTransitioning: boolean,
-  key: string,
-  routes: NavigationRouteState[],
-|};
 
 export type OutboxState = Outbox[];
 
@@ -266,7 +262,7 @@ export type RealmState = {|
   videoChatProvider: VideoChatProvider | null,
 
   email: string | void,
-  user_id: number | void,
+  user_id: UserId | void,
   twentyFourHourTime: boolean,
   canCreateStreams: boolean,
   isAdmin: boolean,
@@ -297,29 +293,9 @@ export type TopicsState = {|
 export type TypingState = {
   [normalizedRecipients: string]: {
     time: number,
-    userIds: number[],
+    userIds: UserId[],
   },
 };
-
-// These four are fragments of UnreadState; see below.
-export type UnreadStreamsState = StreamUnreadItem[];
-export type UnreadHuddlesState = HuddlesUnreadItem[];
-export type UnreadPmsState = PmsUnreadItem[];
-export type UnreadMentionsState = number[];
-
-/**
- * A summary of (almost) all unread messages, even those we don't have.
- *
- * The initial version the server gives us for this data is `unread_msgs` in
- * the `/register` initial state, and we largely follow the structure of
- * that.  See there (in `src/api/initialDataTypes.js`) for details.
- */
-export type UnreadState = {|
-  streams: UnreadStreamsState,
-  huddles: UnreadHuddlesState,
-  pms: UnreadPmsState,
-  mentions: UnreadMentionsState,
-|};
 
 export type UserGroupsState = UserGroup[];
 
@@ -358,8 +334,8 @@ export type GlobalState = {|
   migrations: MigrationsState,
   mute: MuteState,
   narrows: NarrowsState,
-  nav: NavigationState,
   outbox: OutboxState,
+  pmConversations: PmConversationsState,
   presence: PresenceState,
   realm: RealmState,
   session: SessionState,
@@ -382,9 +358,9 @@ export type Selector<TResult, TParam = void> = InputSelector<GlobalState, TParam
 
 export type GetState = () => GlobalState;
 
-export type PlainDispatch = <A: Action | NavigationAction>(action: A) => A;
+export type PlainDispatch = <A: Action>(action: A) => A;
 
 export interface Dispatch {
-  <A: Action | NavigationAction>(action: A): A;
+  <A: Action>(action: A): A;
   <T>((Dispatch, GetState) => T): T;
 }

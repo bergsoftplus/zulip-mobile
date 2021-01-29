@@ -18,7 +18,7 @@ import type {
   Narrow,
   Outbox,
   ImageEmojiType,
-  RenderedSectionDescriptor,
+  HtmlPieceDescriptor,
   Subscription,
   ThemeName,
   User,
@@ -33,7 +33,7 @@ import {
   getAllImageEmojiById,
   getCurrentTypingUsers,
   getDebug,
-  getRenderedMessages,
+  getHtmlPieceDescriptorsForShownMessages,
   getFlags,
   getFetchingForNarrow,
   getFirstUnreadIdInNarrow,
@@ -46,12 +46,12 @@ import {
 } from '../selectors';
 import { withGetText } from '../boot/TranslationProvider';
 import type { ShowActionSheetWithOptions } from '../message/messageActionSheet';
-import type { WebViewUpdateEvent } from './webViewHandleUpdates';
-import type { MessageListEvent } from './webViewEventHandlers';
+import type { WebViewInboundEvent } from './generateInboundEvents';
+import type { WebViewOutboundEvent } from './handleOutboundEvents';
 import getHtml from './html/html';
-import renderMessagesAsHtml from './html/renderMessagesAsHtml';
-import { getUpdateEvents } from './webViewHandleUpdates';
-import { handleMessageListEvent } from './webViewEventHandlers';
+import contentHtmlFromPieceDescriptors from './html/contentHtmlFromPieceDescriptors';
+import generateInboundEvents from './generateInboundEvents';
+import { handleWebViewOutboundEvent } from './handleOutboundEvents';
 import { base64Utf8Encode } from '../utils/encoding';
 import * as logging from '../utils/logging';
 import { tryParseUrl } from '../utils/url';
@@ -93,7 +93,7 @@ type SelectorProps = {|
   initialScrollMessageId: number | null,
   fetching: Fetching,
   messages: $ReadOnlyArray<Message | Outbox>,
-  renderedMessages: RenderedSectionDescriptor[],
+  htmlPieceDescriptorsForShownMessages: HtmlPieceDescriptor[],
   typingUsers: $ReadOnlyArray<UserOrBot>,
 |};
 
@@ -148,11 +148,11 @@ class MessageList extends Component<Props> {
 
   webview: ?WebView;
   readyRetryInterval: IntervalID | void;
-  sendUpdateEventsIsReady: boolean;
-  unsentUpdateEvents: WebViewUpdateEvent[] = [];
+  sendInboundEventsIsReady: boolean;
+  unsentInboundEvents: WebViewInboundEvent[] = [];
 
   componentDidMount() {
-    this.setupSendUpdateEvents();
+    this.setupSendInboundEvents();
   }
 
   componentWillUnmount() {
@@ -167,7 +167,7 @@ class MessageList extends Component<Props> {
   /**
    * Initiate round-trip handshakes with the WebView, until one succeeds.
    */
-  setupSendUpdateEvents = (): void => {
+  setupSendInboundEvents = (): void => {
     const timeAtSetup = Date.now();
     let attempts: number = 0;
     let hasLogged: boolean = false;
@@ -183,8 +183,8 @@ class MessageList extends Component<Props> {
         hasLogged = true;
       }
 
-      if (!this.sendUpdateEventsIsReady) {
-        this.sendUpdateEvents([{ type: 'ready' }]);
+      if (!this.sendInboundEventsIsReady) {
+        this.sendInboundEvents([{ type: 'ready' }]);
         attempts++;
       } else {
         clearInterval(this.readyRetryInterval);
@@ -193,32 +193,34 @@ class MessageList extends Component<Props> {
     }, 30);
   };
 
-  sendUpdateEvents = (uevents: WebViewUpdateEvent[]): void => {
+  sendInboundEvents = (uevents: WebViewInboundEvent[]): void => {
     if (this.webview && uevents.length > 0) {
-      // $FlowFixMe This `postMessage` is undocumented; tracking as #3572.
+      /* $FlowFixMe[prop-missing]: This `postMessage` is undocumented;
+         tracking as #3572. */
       const secretWebView: { postMessage: (string, string) => void } = this.webview;
       secretWebView.postMessage(base64Utf8Encode(JSON.stringify(uevents)), '*');
     }
   };
 
   handleMessage = (event: { +nativeEvent: { +data: string } }) => {
-    const eventData: MessageListEvent = JSON.parse(event.nativeEvent.data);
+    const eventData: WebViewOutboundEvent = JSON.parse(event.nativeEvent.data);
     if (eventData.type === 'ready') {
-      this.sendUpdateEventsIsReady = true;
-      this.sendUpdateEvents(this.unsentUpdateEvents);
+      this.sendInboundEventsIsReady = true;
+      this.sendInboundEvents(this.unsentInboundEvents);
+      this.unsentInboundEvents = [];
     } else {
       const { _ } = this.props;
-      handleMessageListEvent(this.props, _, eventData);
+      handleWebViewOutboundEvent(this.props, _, eventData);
     }
   };
 
   shouldComponentUpdate = (nextProps: Props) => {
-    const uevents = getUpdateEvents(this.props, nextProps);
+    const uevents = generateInboundEvents(this.props, nextProps);
 
-    if (this.sendUpdateEventsIsReady) {
-      this.sendUpdateEvents(uevents);
+    if (this.sendInboundEventsIsReady) {
+      this.sendInboundEvents(uevents);
     } else {
-      this.unsentUpdateEvents.push(...uevents);
+      this.unsentInboundEvents.push(...uevents);
     }
 
     return false;
@@ -227,14 +229,18 @@ class MessageList extends Component<Props> {
   render() {
     const {
       backgroundData,
-      renderedMessages,
+      htmlPieceDescriptorsForShownMessages,
       initialScrollMessageId,
       narrow,
       showMessagePlaceholders,
     } = this.props;
-    const messagesHtml = renderMessagesAsHtml(backgroundData, narrow, renderedMessages);
+    const contentHtml = contentHtmlFromPieceDescriptors(
+      backgroundData,
+      narrow,
+      htmlPieceDescriptorsForShownMessages,
+    );
     const { auth, theme } = backgroundData;
-    const html: string = getHtml(messagesHtml, theme, {
+    const html: string = getHtml(contentHtml, theme, {
       scrollMessageId: initialScrollMessageId,
       auth,
       showMessagePlaceholders,
@@ -307,6 +313,7 @@ class MessageList extends Component<Props> {
         source={{ baseUrl: (baseUrl.toString(): string), html }}
         originWhitelist={['file://']}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+        decelerationRate="normal"
         style={{ backgroundColor: 'transparent' }}
         ref={webview => {
           this.webview = webview;
@@ -325,7 +332,7 @@ type OuterProps = {|
   /* Remaining props are derived from `narrow` by default. */
 
   messages?: Message[],
-  renderedMessages?: RenderedSectionDescriptor[],
+  htmlPieceDescriptorsForShownMessages?: HtmlPieceDescriptor[],
   initialScrollMessageId?: number | null,
 
   /* Passing these two from the parent is kind of a hack; search uses it
@@ -360,7 +367,9 @@ export default connect<SelectorProps, _, _>((state, props: OuterProps) => {
         : getFirstUnreadIdInNarrow(state, props.narrow),
     fetching: props.fetching || getFetchingForNarrow(state, props.narrow),
     messages: props.messages || getShownMessagesForNarrow(state, props.narrow),
-    renderedMessages: props.renderedMessages || getRenderedMessages(state, props.narrow),
+    htmlPieceDescriptorsForShownMessages:
+      props.htmlPieceDescriptorsForShownMessages
+      || getHtmlPieceDescriptorsForShownMessages(state, props.narrow),
     typingUsers: props.typingUsers || getCurrentTypingUsers(state, props.narrow),
   };
 })(connectActionSheet(withGetText(MessageList)));

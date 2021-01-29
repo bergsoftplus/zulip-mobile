@@ -1,57 +1,30 @@
 /* @flow strict-local */
-import { createSelector } from 'reselect';
+import type { NavigationState, Route } from '@react-navigation/native';
 
-import type { GlobalState, NavigationRouteState, NavigationState, Selector } from '../types';
-import type { Narrow } from '../api/apiTypes';
+import * as NavigationService from './NavigationService';
 
-export const getNav = (state: GlobalState): NavigationState => state.nav;
+export const getNavState = (): NavigationState => NavigationService.getState();
 
-const getNavigationRoutes = (state: GlobalState): NavigationRouteState[] => state.nav.routes;
+export const getNavigationRoutes = (): $ReadOnlyArray<Route<string>> => getNavState().routes;
 
-const getNavigationIndex = (state: GlobalState): number => state.nav.index;
+const getNavigationIndex = () => getNavState().index;
 
-export const getCurrentRouteName = (state: GlobalState): string =>
-  state.nav.routes[state.nav.index].routeName;
+const getCurrentRoute = (): void | Route<string> => getNavigationRoutes()[getNavigationIndex()];
 
-export const getCurrentRouteParams: Selector<void | { narrow?: Narrow }> = createSelector(
-  getNavigationRoutes,
-  getNavigationIndex,
-  (routes, index) => routes[index] && routes[index].params,
-);
+export const getCurrentRouteName = () => getCurrentRoute()?.name;
 
-export const getChatScreenParams: Selector<{ narrow?: Narrow }> = createSelector(
-  getCurrentRouteParams,
-  params => params || { narrow: undefined },
-);
+export const getCurrentRouteParams = () => getCurrentRoute()?.params;
 
-export const getTopMostNarrow: Selector<void | Narrow> = createSelector(
-  getNav,
-  nav => {
-    const { routes } = nav;
-    let { index } = nav;
-    while (index >= 0) {
-      if (routes[index].routeName === 'chat') {
-        const { params } = routes[index];
-        return params ? params.narrow : undefined;
-      }
-      index--;
+export const getChatScreenParams = () => getCurrentRouteParams() ?? { narrow: undefined };
+
+export const getSameRoutesCount = () => {
+  const routes = getNavigationRoutes();
+  let i = routes.length - 1;
+  while (i >= 0) {
+    if (routes[i].name !== routes[routes.length - 1].name) {
+      break;
     }
-    return undefined;
-  },
-);
-
-export const getCanGoBack = (state: GlobalState) => state.nav.index > 0;
-
-export const getSameRoutesCount: Selector<number> = createSelector(
-  getNav,
-  nav => {
-    let i = nav.routes.length - 1;
-    while (i >= 0) {
-      if (nav.routes[i].routeName !== nav.routes[nav.routes.length - 1].routeName) {
-        break;
-      }
-      i--;
-    }
-    return nav.routes.length - i - 1;
-  },
-);
+    i--;
+  }
+  return routes.length - i - 1;
+};

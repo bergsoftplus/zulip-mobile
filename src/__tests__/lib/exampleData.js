@@ -1,6 +1,7 @@
 /* @flow strict-local */
 import deepFreeze from 'deep-freeze';
 import { createStore } from 'redux';
+import Immutable from 'immutable';
 
 import type {
   CrossRealmBot,
@@ -11,9 +12,12 @@ import type {
   Subscription,
   User,
   UserGroup,
+  UserId,
 } from '../../api/modelTypes';
-import type { Action, GlobalState, RealmState } from '../../reduxTypes';
+import { makeUserId } from '../../api/idTypes';
+import type { Action, GlobalState, MessagesState, RealmState } from '../../reduxTypes';
 import type { Auth, Account, Outbox } from '../../types';
+import { UploadedAvatarURL } from '../../utils/avatar';
 import { ZulipVersion } from '../../utils/zulipVersion';
 import {
   ACCOUNT_SWITCH,
@@ -79,16 +83,43 @@ const makeUniqueRandInt = (itemsType: string, end: number): (() => number) => {
 /** Return a string that's almost surely different every time. */
 export const randString = () => randInt(2 ** 54).toString(36);
 
+const intRange = (start, len) => Array.from({ length: len }, (k, i) => i + start);
+
+/** A string with diverse characters to exercise encoding/decoding bugs. */
+/* eslint-disable prefer-template */
+export const diverseCharacters =
+  // The whole range of lowest code points, including control codes
+  // and ASCII punctuation like `"` and `&` used in various syntax...
+  String.fromCharCode(...intRange(0, 0x100))
+  // ... some characters from other scripts...
+  + 'いい文字🎇'
+  // ... some unpaired surrogates, which JS strings can have...
+  + String.fromCharCode(...intRange(0xdbf0, 0x20))
+  // ... some characters beyond the BMP (≥ U+10000)...
+  + '𐂷𠂢'
+  // ... and some code points at the very end of the Unicode range.
+  + String.fromCodePoint(...intRange(0x10fff0, 0x10));
+
 /* ========================================================================
  * Users and bots
  */
 
-const randUserId: () => number = makeUniqueRandInt('user IDs', 10000);
-const userOrBotProperties = ({ name: _name }) => {
+type UserOrBotPropertiesArgs = {|
+  name?: string,
+  user_id?: number, // accept a plain number, for convenience in tests
+|};
+
+const randUserId: () => UserId = (mk => () => makeUserId(mk()))(
+  makeUniqueRandInt('user IDs', 10000),
+);
+const userOrBotProperties = ({ name: _name, user_id }: UserOrBotPropertiesArgs) => {
   const name = _name ?? randString();
   const capsName = name.substring(0, 1).toUpperCase() + name.substring(1);
   return deepFreeze({
-    avatar_url: `https://zulip.example.org/yo/avatar-${name}.png`,
+    // Internally the UploadedAvatarURL mutates itself for memoization.
+    // That conflicts with the deepFreeze we do for tests; so construct it
+    // here with a full-blown URL object in the first place to prevent that.
+    avatar_url: new UploadedAvatarURL(new URL(`https://zulip.example.org/yo/avatar-${name}.png`)),
 
     date_joined: `2014-04-${randInt(30)
       .toString()
@@ -98,12 +129,12 @@ const userOrBotProperties = ({ name: _name }) => {
     full_name: `${capsName} User`,
     is_admin: false,
     timezone: 'UTC',
-    user_id: randUserId(),
+    user_id: user_id != null ? makeUserId(user_id) : randUserId(),
   });
 };
 
 /** Beware! These values may not be representative. */
-export const makeUser = (args: { name?: string } = {}): User =>
+export const makeUser = (args: UserOrBotPropertiesArgs = Object.freeze({})): User =>
   deepFreeze({
     ...userOrBotProperties(args),
 
@@ -117,7 +148,9 @@ export const makeUser = (args: { name?: string } = {}): User =>
   });
 
 /** Beware! These values may not be representative. */
-export const makeCrossRealmBot = (args: { name?: string } = {}): CrossRealmBot =>
+export const makeCrossRealmBot = (
+  args: UserOrBotPropertiesArgs = Object.freeze({}),
+): CrossRealmBot =>
   deepFreeze({
     ...userOrBotProperties(args),
     is_bot: true,
@@ -179,6 +212,7 @@ export const selfAccount: Account = makeAccount({
 export const selfAuth: Auth = deepFreeze(authOfAccount(selfAccount));
 
 export const otherUser: User = makeUser({ name: 'other' });
+export const thirdUser: User = makeUser({ name: 'third' });
 
 export const crossRealmBot: CrossRealmBot = makeCrossRealmBot({ name: 'bot' });
 
@@ -265,17 +299,11 @@ const messagePropertiesBase = deepFreeze({
 });
 
 const messagePropertiesFromSender = (user: User) => {
-  const {
-    avatar_url,
-    user_id: sender_id,
-    email: sender_email,
-    full_name: sender_full_name,
-  } = otherUser;
+  const { user_id: sender_id, email: sender_email, full_name: sender_full_name } = user;
 
   return deepFreeze({
     sender_domain: '',
-
-    avatar_url,
+    avatar_url: user.avatar_url,
     client: 'ExampleClient',
     gravatar_hash: 'd3adb33f',
     sender_email,
@@ -293,14 +321,30 @@ const randMessageId: () => number = makeUniqueRandInt('message ID', 10000000);
  *
  * Beware! These values may not be representative.
  */
-export const pmMessage = (extra?: $Rest<Message, {}>): Message => {
+export const pmMessage = (args?: {|
+  ...$Rest<Message, {}>,
+  sender?: User,
+  recipients?: User[],
+  sender_id?: number, // accept a plain number, for convenience in tests
+|}): Message => {
+  // The `Object.freeze` is to work around a Flow issue:
+  //   https://github.com/facebook/flow/issues/2386#issuecomment-695064325
+  const {
+    sender = otherUser,
+    recipients = [otherUser, selfUser],
+    sender_id = undefined,
+    ...extra
+  } = args ?? Object.freeze({});
+
   const baseMessage: Message = {
     ...messagePropertiesBase,
-    ...messagePropertiesFromSender(otherUser),
+    ...messagePropertiesFromSender(sender),
 
     content: 'This is an example PM message.',
     content_type: 'text/markdown',
-    display_recipient: [displayRecipientFromUser(selfUser)],
+    // We don't sort the recipients, because they're inconsistently sorted
+    // in real messages.  (See comments on the Message type.)
+    display_recipient: recipients.map(displayRecipientFromUser),
     id: randMessageId(),
     recipient_id: 2342,
     stream_id: -1,
@@ -309,8 +353,15 @@ export const pmMessage = (extra?: $Rest<Message, {}>): Message => {
     type: 'private',
   };
 
-  return deepFreeze({ ...baseMessage, ...extra });
+  return deepFreeze({
+    ...baseMessage,
+    ...(sender_id != null && { sender_id: makeUserId(sender_id) }),
+    ...extra,
+  });
 };
+
+export const pmMessageFromTo = (from: User, to: User[], extra?: $Rest<Message, {}>): Message =>
+  pmMessage({ sender: from, recipients: [from, ...to], ...extra });
 
 const messagePropertiesFromStream = (stream1: Stream) => {
   const { stream_id, name: display_recipient } = stream1;
@@ -326,14 +377,18 @@ const messagePropertiesFromStream = (stream1: Stream) => {
  *
  * Beware! These values may not be representative.
  */
-export const streamMessage = (args?: {| ...$Rest<Message, {}>, stream?: Stream |}): Message => {
-  // The redundant `stream` in the ?? case avoids a Flow issue:
-  // https://github.com/facebook/flow/issues/2386
-  const { stream: streamInner = stream, ...extra } = args ?? { stream };
+export const streamMessage = (args?: {|
+  ...$Rest<Message, {}>,
+  stream?: Stream,
+  sender?: User,
+|}): Message => {
+  // The `Object.freeze` is to work around a Flow issue:
+  //   https://github.com/facebook/flow/issues/2386#issuecomment-695064325
+  const { stream: streamInner = stream, sender = otherUser, ...extra } = args ?? Object.freeze({});
 
   const baseMessage: Message = {
     ...messagePropertiesBase,
-    ...messagePropertiesFromSender(otherUser),
+    ...messagePropertiesFromSender(sender),
     ...messagePropertiesFromStream(streamInner),
 
     content: 'This is an example stream message.',
@@ -347,6 +402,10 @@ export const streamMessage = (args?: {| ...$Rest<Message, {}>, stream?: Stream |
   return deepFreeze({ ...baseMessage, ...extra });
 };
 
+/** Construct a MessagesState from a list of messages. */
+export const makeMessagesState = (messages: Message[]): MessagesState =>
+  Immutable.Map(messages.map(m => [m.id, m]));
+
 /* ========================================================================
  * Outbox messages
  *
@@ -357,16 +416,15 @@ export const streamMessage = (args?: {| ...$Rest<Message, {}>, stream?: Stream |
 const outboxMessageBase: $Diff<Outbox, {| id: mixed, timestamp: mixed |}> = deepFreeze({
   isOutbox: true,
   isSent: false,
-
   avatar_url: selfUser.avatar_url,
   content: '<p>Test.</p>',
-  display_recipient: 'test',
+  display_recipient: stream.name,
   // id: ...,
   markdownContent: 'Test.',
-  narrow: [{ operator: 'stream', operand: 'test' }],
   reactions: [],
   sender_email: selfUser.email,
   sender_full_name: selfUser.full_name,
+  sender_id: selfUser.user_id,
   subject: 'test topic',
   // timestamp: ...,
   type: 'stream',
@@ -395,14 +453,74 @@ export const makeOutboxMessage = (data: $Shape<$Diff<Outbox, {| id: mixed |}>>):
 
 const privateReduxStore = createStore(rootReducer);
 
-/** The global Redux state, at its initial value. */
+/**
+ * The global Redux state, at its initial value.
+ *
+ * See `plusReduxState` for a version of the state that incorporates
+ * `selfUser` and other standard example data.
+ */
 export const baseReduxState: GlobalState = deepFreeze(privateReduxStore.getState());
 
+/**
+ * A global Redux state, with `baseReduxState` plus the given data.
+ *
+ * See `reduxStatePlus` for a version that automatically includes `selfUser`
+ * and other standard example data.
+ */
 export const reduxState = (extra?: $Rest<GlobalState, {}>): GlobalState =>
   deepFreeze({
     ...baseReduxState,
     ...extra,
   });
+
+/**
+ * The global Redux state, reflecting standard example data like `selfUser`.
+ *
+ * This approximates what the state might look like at a time when the app
+ * is showing its main UI: so when the user has logged into some account and
+ * we have our usual server data for it.
+ *
+ * In particular:
+ *  * The self-user is `selfUser`.
+ *  * Users `otherUser` and `thirdUser` also exist.
+ *
+ * More generally, each object in the Zulip app model -- a user, a stream,
+ * etc. -- that this module exports as a constant value (rather than only as
+ * a function to make a value) will typically appear here.
+ *
+ * That set will grow over time, so a test should never rely on
+ * `plusReduxState` containing only the things it currently contains.  For
+ * example, it should not assume there are only three users, even if that
+ * happens to be true now.  If the test needs a user (or stream, etc.) that
+ * isn't in this state, it should create the user privately for itself, with
+ * a helper like `makeUser`.
+ *
+ * On the other hand, a test *can* rely on an item being here if it
+ * currently is here.  So for example a test which uses `plusReduxState` can
+ * assume it contains `otherUser`; it need not, and should not bother to,
+ * add `otherUser` to the state.
+ *
+ * See `baseReduxState` for a minimal version of the state.
+ */
+export const plusReduxState: GlobalState = reduxState({
+  // TODO add .accounts, reflecting selfAuth, zulipVersion, zulipFeatureLevel
+  realm: { ...baseReduxState.realm, user_id: selfUser.user_id, email: selfUser.email },
+  // TODO add crossRealmBot
+  users: [selfUser, otherUser, thirdUser],
+  // TODO add stream and subscription
+});
+
+/**
+ * A global Redux state, adding the given data to `plusReduxState`.
+ *
+ * This automatically includes standard example data like `selfUser` and
+ * `otherUser`, so that there's no need to add those explicitly.  See
+ * `plusReduxState` for details on what's included.
+ *
+ * See `reduxState` for a version starting from a minimal state.
+ */
+export const reduxStatePlus = (extra?: $Rest<GlobalState, {}>): GlobalState =>
+  deepFreeze({ ...plusReduxState, ...extra });
 
 export const realmState = (extra?: $Rest<RealmState, {}>): RealmState =>
   deepFreeze({
@@ -492,8 +610,9 @@ export const action = deepFreeze({
       is_admin: false,
       realm_non_active_users: [],
       realm_users: [],
-      user_id: 4,
+      user_id: makeUserId(4),
       realm_user_groups: [],
+      recent_private_conversations: [],
       streams: [],
       never_subscribed: [],
       subscriptions: [],
@@ -547,6 +666,7 @@ export const action = deepFreeze({
     numAfter: 50,
     foundNewest: undefined,
     foundOldest: undefined,
+    ownUserId: selfUser.user_id,
   },
 });
 
@@ -567,5 +687,5 @@ export const eventNewMessageActionBase /* \: $Diff<EventNewMessageAction, {| mes
   type: EVENT_NEW_MESSAGE,
   id: 1001,
   caughtUp: {},
-  ownEmail: selfAccount.email,
+  ownUserId: selfUser.user_id,
 };

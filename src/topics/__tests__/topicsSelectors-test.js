@@ -1,7 +1,11 @@
 /* @flow strict-local */
+import Immutable from 'immutable';
+
 import { getTopicsForNarrow, getLastMessageTopic, getTopicsForStream } from '../topicSelectors';
-import { HOME_NARROW, streamNarrow } from '../../utils/narrow';
+import { HOME_NARROW, streamNarrow, keyFromNarrow } from '../../utils/narrow';
+import { reducer as unreadReducer } from '../../unread/unreadModel';
 import * as eg from '../../__tests__/lib/exampleData';
+import { mkMessageAction } from '../../unread/__tests__/unread-testlib';
 
 describe('getTopicsForNarrow', () => {
   test('when no topics return an empty list', () => {
@@ -30,7 +34,9 @@ describe('getTopicsForNarrow', () => {
 describe('getLastMessageTopic', () => {
   test('when no messages in narrow return an empty string', () => {
     const state = eg.reduxState({
-      narrows: {},
+      narrows: Immutable.Map({}),
+      users: [eg.selfUser],
+      realm: eg.realmState({ user_id: eg.selfUser.user_id, email: eg.selfUser.email }),
     });
 
     const topic = getLastMessageTopic(state, HOME_NARROW);
@@ -43,13 +49,12 @@ describe('getLastMessageTopic', () => {
     const message1 = eg.streamMessage({ id: 1 });
     const message2 = eg.streamMessage({ id: 2, subject: 'some topic' });
     const state = eg.reduxState({
-      narrows: {
-        [JSON.stringify(narrow)]: [1, 2],
-      },
-      messages: {
-        [message1.id]: message1,
-        [message2.id]: message2,
-      },
+      narrows: Immutable.Map({
+        [keyFromNarrow(narrow)]: [1, 2],
+      }),
+      messages: eg.makeMessagesState([message1, message2]),
+      users: [eg.selfUser],
+      realm: eg.realmState({ user_id: eg.selfUser.user_id, email: eg.selfUser.email }),
     });
 
     const topic = getLastMessageTopic(state, narrow);
@@ -64,10 +69,6 @@ describe('getTopicsForStream', () => {
       streams: [],
       topics: {},
       mute: [],
-      unread: {
-        ...eg.baseReduxState.unread,
-        streams: [],
-      },
     });
 
     const topics = getTopicsForStream(state, 123);
@@ -83,10 +84,6 @@ describe('getTopicsForStream', () => {
         [stream.stream_id]: [{ name: 'topic', max_id: 456 }],
       },
       mute: [],
-      unread: {
-        ...eg.baseReduxState.unread,
-        streams: [],
-      },
     });
 
     const topics = getTopicsForStream(state, stream.stream_id);
@@ -97,7 +94,7 @@ describe('getTopicsForStream', () => {
   test('Return list of topic object with isMuted, unreadCount, topic name and max id in it.', () => {
     const stream = { ...eg.makeStream({ name: 'stream 1' }), stream_id: 1 };
 
-    const state = eg.reduxState({
+    const state = eg.reduxStatePlus({
       streams: [stream],
       topics: {
         [stream.stream_id]: [
@@ -109,21 +106,16 @@ describe('getTopicsForStream', () => {
         ],
       },
       mute: [['stream 1', 'topic 1'], ['stream 1', 'topic 3'], ['stream 2', 'topic 2']],
-      unread: {
-        ...eg.baseReduxState.unread,
-        streams: [
-          {
-            stream_id: 1,
-            topic: 'topic 2',
-            unread_message_ids: [1, 5, 6],
-          },
-          {
-            stream_id: 1,
-            topic: 'topic 4',
-            unread_message_ids: [7, 8],
-          },
-        ],
-      },
+      unread: [
+        eg.streamMessage({ stream_id: 1, subject: 'topic 2', id: 1 }),
+        eg.streamMessage({ stream_id: 1, subject: 'topic 2', id: 5 }),
+        eg.streamMessage({ stream_id: 1, subject: 'topic 2', id: 6 }),
+        eg.streamMessage({ stream_id: 1, subject: 'topic 4', id: 7 }),
+        eg.streamMessage({ stream_id: 1, subject: 'topic 4', id: 8 }),
+      ].reduce(
+        (st, message) => unreadReducer(st, mkMessageAction(message), eg.plusReduxState),
+        eg.plusReduxState.unread,
+      ),
     });
     const expected = [
       { name: 'topic 1', max_id: 5, isMuted: true, unreadCount: 0 },

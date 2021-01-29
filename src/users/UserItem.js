@@ -1,9 +1,13 @@
 /* @flow strict-local */
-import React, { PureComponent } from 'react';
+import React, { type ElementConfig, PureComponent } from 'react';
 import { View } from 'react-native';
 
-import { UserAvatarWithPresence, RawLabel, Touchable, UnreadCount } from '../common';
+import type { UserId } from '../types';
+import { RawLabel, Touchable, UnreadCount } from '../common';
+import { UserAvatarWithPresenceById } from '../common/UserAvatarWithPresence';
 import styles, { createStyleSheet, BRAND_COLOR } from '../styles';
+import { useSelector } from '../react-redux';
+import { getUserForId } from './userSelectors';
 
 const componentStyles = createStyleSheet({
   selectedRow: {
@@ -24,45 +28,54 @@ const componentStyles = createStyleSheet({
   },
 });
 
-type Props = $ReadOnly<{|
-  email: string,
-  fullName: string,
-  avatarUrl: ?string,
+type Props<UserT> = $ReadOnly<{|
+  user: UserT,
   isSelected: boolean,
   showEmail: boolean,
   unreadCount?: number,
-  onPress: (email: string) => void,
+  onPress?: UserT => void,
 |}>;
 
-export default class UserItem extends PureComponent<Props> {
+/**
+ * A user represented with avatar and name, for use in a list.
+ *
+ * Prefer the default export `UserItem` over this component: it does the
+ * same thing but provides a more encapsulated interface.
+ *
+ * This component is potentially appropriate if displaying a synthetic fake
+ * user, one that doesn't exist in the database.  (But anywhere we're doing
+ * that, there's probably a better UI anyway than showing a fake user.)
+ */
+export class UserItemRaw<
+  UserT: { user_id: UserId, email: string, full_name: string, ... },
+> extends PureComponent<Props<UserT>> {
   static defaultProps = {
     isSelected: false,
     showEmail: false,
   };
 
   handlePress = () => {
-    const { email, onPress } = this.props;
-    if (email && onPress) {
-      onPress(email);
+    const { user, onPress } = this.props;
+    if (onPress) {
+      onPress(user);
     }
   };
 
   render() {
-    const { fullName, avatarUrl, isSelected, unreadCount, showEmail, email } = this.props;
+    const { user, isSelected, onPress, unreadCount, showEmail } = this.props;
 
     return (
-      <Touchable onPress={this.handlePress}>
+      <Touchable onPress={onPress && this.handlePress}>
         <View style={[styles.listItem, isSelected && componentStyles.selectedRow]}>
-          <UserAvatarWithPresence
+          <UserAvatarWithPresenceById
             size={48}
-            avatarUrl={avatarUrl}
-            email={email}
-            onPress={this.handlePress}
+            userId={user.user_id}
+            onPress={onPress && this.handlePress}
           />
           <View style={componentStyles.textWrapper}>
             <RawLabel
               style={[componentStyles.text, isSelected && componentStyles.selectedText]}
-              text={fullName}
+              text={user.full_name}
               numberOfLines={1}
               ellipsizeMode="tail"
             />
@@ -73,7 +86,7 @@ export default class UserItem extends PureComponent<Props> {
                   componentStyles.textEmail,
                   isSelected && componentStyles.selectedText,
                 ]}
-                text={email}
+                text={user.email}
                 numberOfLines={1}
                 ellipsizeMode="tail"
               />
@@ -84,4 +97,22 @@ export default class UserItem extends PureComponent<Props> {
       </Touchable>
     );
   }
+}
+
+type OuterProps = $ReadOnly<{|
+  ...$Exact<$Diff<ElementConfig<typeof UserItemRaw>, { user: mixed }>>,
+  userId: UserId,
+|}>;
+
+/**
+ * A user represented with avatar and name, for use in a list.
+ *
+ * Use this in preference to `UserItemRaw`.  That helps us better
+ * encapsulate getting user data where it's needed.
+ */
+// eslint-disable-next-line func-names
+export default function (props: OuterProps) {
+  const { userId, ...restProps } = props;
+  const user = useSelector(state => getUserForId(state, userId));
+  return <UserItemRaw {...restProps} user={user} />;
 }

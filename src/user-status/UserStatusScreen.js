@@ -4,6 +4,9 @@ import { FlatList, View } from 'react-native';
 import { TranslationContext } from '../boot/TranslationProvider';
 import { createStyleSheet } from '../styles';
 
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import * as NavigationService from '../nav/NavigationService';
 import type { GetText, Dispatch } from '../types';
 import { connect } from '../react-redux';
 import { Input, OptionButton, Screen, ZulipButton } from '../common';
@@ -27,6 +30,9 @@ const styles = createStyleSheet({
 });
 
 type Props = $ReadOnly<{|
+  navigation: AppNavigationProp<'user-status'>,
+  route: RouteProp<'user-status', void>,
+
   dispatch: Dispatch,
   userStatusText: string,
 |}>;
@@ -52,7 +58,7 @@ class UserStatusScreen extends PureComponent<Props, State> {
   updateStatusText = (statusText: string) => {
     const { dispatch } = this.props;
     dispatch(updateUserStatusText(statusText));
-    dispatch(navigateBack());
+    NavigationService.dispatch(navigateBack());
   };
 
   handleStatusTextUpdate = () => {
@@ -75,7 +81,7 @@ class UserStatusScreen extends PureComponent<Props, State> {
           autoFocus
           maxLength={60}
           style={styles.statusTextInput}
-          placeholder="What's your status?"
+          placeholder="What’s your status?"
           value={statusText}
           onChangeText={this.setStatusTextState}
         />

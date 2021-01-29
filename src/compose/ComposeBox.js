@@ -1,9 +1,12 @@
 /* @flow strict-local */
 import React, { PureComponent } from 'react';
-import { Platform, View, TextInput, findNodeHandle } from 'react-native';
+import { Platform, View, findNodeHandle } from 'react-native';
 import type { LayoutEvent } from 'react-native/Libraries/Types/CoreEventTypes';
 import TextInputReset from 'react-native-text-input-reset';
+import { type EdgeInsets } from 'react-native-safe-area-context';
+import { compose } from 'redux';
 
+import { withSafeAreaInsets } from '../react-native-safe-area-context';
 import type { ThemeData } from '../styles';
 import { ThemeContext } from '../styles';
 import type {
@@ -13,27 +16,26 @@ import type {
   InputSelection,
   UserOrBot,
   Dispatch,
-  Dimensions,
   CaughtUp,
   GetText,
   Subscription,
   Stream,
+  UserId,
   VideoChatProvider,
 } from '../types';
 import { connect } from '../react-redux';
 import { withGetText } from '../boot/TranslationProvider';
-import {
-  addToOutbox,
-  draftUpdate,
-  fetchTopicsForStream,
-  sendTypingStart,
-  sendTypingStop,
-} from '../actions';
+import { addToOutbox, draftUpdate, sendTypingStart, sendTypingStop } from '../actions';
 import * as api from '../api';
 import { FloatingActionButton, Input } from '../common';
 import { showErrorAlert } from '../utils/info';
 import { IconDone, IconSend } from '../common/Icons';
-import { isStreamNarrow, isStreamOrTopicNarrow, topicNarrow } from '../utils/narrow';
+import {
+  isStreamNarrow,
+  isStreamOrTopicNarrow,
+  streamNameOfNarrow,
+  topicNarrow,
+} from '../utils/narrow';
 import ComposeMenu from './ComposeMenu';
 import getComposeInputPlaceholder from './getComposeInputPlaceholder';
 import NotSubscribed from '../message/NotSubscribed';
@@ -43,9 +45,7 @@ import MentionWarnings from './MentionWarnings';
 import {
   getAuth,
   getIsAdmin,
-  getSession,
   getLastMessageTopic,
-  getActiveUsersByEmail,
   getCaughtUpForNarrow,
   getStreamInNarrow,
   getVideoChatProvider,
@@ -57,13 +57,12 @@ import {
 import { getDraftForNarrow } from '../drafts/draftsSelectors';
 import TopicAutocomplete from '../autocomplete/TopicAutocomplete';
 import AutocompleteView from '../autocomplete/AutocompleteView';
-import { getOwnEmail } from '../users/userSelectors';
+import { getAllUsersById, getOwnUserId } from '../users/userSelectors';
 
 type SelectorProps = {|
   auth: Auth,
-  ownEmail: string,
-  usersByEmail: Map<string, UserOrBot>,
-  safeAreaInsets: Dimensions,
+  ownUserId: UserId,
+  allUsersById: Map<UserId, UserOrBot>,
   isAdmin: boolean,
   isAnnouncementOnly: boolean,
   isSubscribed: boolean,
@@ -75,6 +74,8 @@ type SelectorProps = {|
 |};
 
 type Props = $ReadOnly<{|
+  insets: EdgeInsets,
+
   narrow: Narrow,
   editMessage: EditMessage | null,
   completeEditMessage: () => void,
@@ -106,16 +107,14 @@ function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-export const updateTextInput = (textInput: typeof TextInput | null, text: string): void => {
+const updateTextInput = (textInput, text) => {
   if (textInput === null) {
     // Depending on the lifecycle events this function is called from,
     // this might not be set yet.
     return;
   }
 
-  // Should be fixed in RN v0.63 (#4245); see
-  // https://github.com/zulip/zulip-mobile/issues/4245#issuecomment-695104351.
-  // $FlowFixMe
+  // `textInput` is untyped; see definition.
   textInput.setNativeProps({ text });
 
   if (text.length === 0 && TextInputReset) {
@@ -129,13 +128,17 @@ class ComposeBox extends PureComponent<Props, State> {
   static contextType = ThemeContext;
   context: ThemeData;
 
-  messageInputRef = React.createRef<typeof TextInput>();
-  topicInputRef = React.createRef<typeof TextInput>();
+  // We should replace the fixme with
+  // `React$ElementRef<typeof TextInput>` when we can. Currently, that
+  // would make `.current` be `any(implicit)`, which we don't want;
+  // this is probably down to bugs in Flow's special support for React.
+  messageInputRef = React.createRef<$FlowFixMe>();
+  topicInputRef = React.createRef<$FlowFixMe>();
 
   // TODO: Type-check this, once we've adjusted our `react-redux`
   // wrapper to do the right thing. It should be
   //
-  //   mentionWarnings = React.createRef<typeof MentionWarnings>()
+  //   mentionWarnings = React.createRef<React$ElementRef<MentionWarnings>>()
   //
   // but we need our `react-redux` wrapper to be aware of
   // `{ forwardRef: true }`, since we use that.
@@ -282,13 +285,11 @@ class ComposeBox extends PureComponent<Props, State> {
   };
 
   handleTopicFocus = () => {
-    const { dispatch, narrow } = this.props;
     this.setState({
       isTopicFocused: true,
       isFocused: true,
       isMenuExpanded: false,
     });
-    dispatch(fetchTopicsForStream(narrow));
   };
 
   handleTopicBlur = () => {
@@ -307,8 +308,12 @@ class ComposeBox extends PureComponent<Props, State> {
 
   getDestinationNarrow = (): Narrow => {
     const { narrow } = this.props;
-    const topic = this.state.topic.trim();
-    return isStreamNarrow(narrow) ? topicNarrow(narrow[0].operand, topic || '(no topic)') : narrow;
+    if (isStreamNarrow(narrow)) {
+      const streamName = streamNameOfNarrow(narrow);
+      const topic = this.state.topic.trim();
+      return topicNarrow(streamName, topic || '(no topic)');
+    }
+    return narrow;
   };
 
   handleSend = () => {
@@ -346,9 +351,7 @@ class ComposeBox extends PureComponent<Props, State> {
     }
     completeEditMessage();
     if (this.messageInputRef.current !== null) {
-      // Should be fixed in RN v0.63 (#4245); see
-      // https://github.com/zulip/zulip-mobile/issues/4245#issuecomment-695104351.
-      // $FlowFixMe
+      // `.current` is not type-checked; see definition.
       this.messageInputRef.current.blur();
     }
   };
@@ -363,9 +366,7 @@ class ComposeBox extends PureComponent<Props, State> {
       this.setMessageInputValue(message);
       this.setTopicInputValue(topic);
       if (this.messageInputRef.current !== null) {
-        // Should be fixed in RN v0.63 (#4245); see
-        // https://github.com/zulip/zulip-mobile/issues/4245#issuecomment-695104351.
-        // $FlowFixMe
+        // `.current` is not type-checked; see definition.
         this.messageInputRef.current.focus();
       }
     }
@@ -419,11 +420,11 @@ class ComposeBox extends PureComponent<Props, State> {
   render() {
     const { isTopicFocused, isMenuExpanded, height, message, topic, selection } = this.state;
     const {
-      ownEmail,
+      ownUserId,
       narrow,
-      usersByEmail,
+      allUsersById,
       editMessage,
-      safeAreaInsets,
+      insets,
       isAdmin,
       isAnnouncementOnly,
       isSubscribed,
@@ -440,15 +441,18 @@ class ComposeBox extends PureComponent<Props, State> {
       return <AnnouncementOnly />;
     }
 
-    const placeholder = getComposeInputPlaceholder(narrow, ownEmail, usersByEmail);
+    const placeholder = getComposeInputPlaceholder(narrow, ownUserId, allUsersById);
     const style = {
-      paddingBottom: safeAreaInsets.bottom,
+      paddingBottom: insets.bottom,
       backgroundColor: 'hsla(0, 0%, 50%, 0.1)',
     };
 
     return (
       <View style={this.styles.wrapper}>
-        {/* $FlowFixMe - `MentionWarnings` should use a type-checked `connect` */}
+        {/*
+          $FlowFixMe[incompatible-use]:
+          `MentionWarnings` should use a type-checked `connect`
+        */}
         <MentionWarnings narrow={narrow} stream={stream} ref={this.mentionWarnings} />
         <View style={[this.styles.autocompleteWrapper, { marginBottom: height }]}>
           <TopicAutocomplete
@@ -504,6 +508,7 @@ class ComposeBox extends PureComponent<Props, State> {
             />
           </View>
           <FloatingActionButton
+            accessibilityLabel="Send message"
             style={this.styles.composeSendButton}
             Icon={editMessage === null ? IconSend : IconDone}
             size={32}
@@ -516,17 +521,19 @@ class ComposeBox extends PureComponent<Props, State> {
   }
 }
 
-export default connect<SelectorProps, _, _>((state, props) => ({
-  auth: getAuth(state),
-  ownEmail: getOwnEmail(state),
-  usersByEmail: getActiveUsersByEmail(state),
-  safeAreaInsets: getSession(state).safeAreaInsets,
-  isAdmin: getIsAdmin(state),
-  isAnnouncementOnly: getIsActiveStreamAnnouncementOnly(state, props.narrow),
-  isSubscribed: getIsActiveStreamSubscribed(state, props.narrow),
-  draft: getDraftForNarrow(state, props.narrow),
-  lastMessageTopic: getLastMessageTopic(state, props.narrow),
-  caughtUp: getCaughtUpForNarrow(state, props.narrow),
-  stream: getStreamInNarrow(state, props.narrow),
-  videoChatProvider: getVideoChatProvider(state),
-}))(withGetText(ComposeBox));
+export default compose(
+  connect<SelectorProps, _, _>((state, props) => ({
+    auth: getAuth(state),
+    ownUserId: getOwnUserId(state),
+    allUsersById: getAllUsersById(state),
+    isAdmin: getIsAdmin(state),
+    isAnnouncementOnly: getIsActiveStreamAnnouncementOnly(state, props.narrow),
+    isSubscribed: getIsActiveStreamSubscribed(state, props.narrow),
+    draft: getDraftForNarrow(state, props.narrow),
+    lastMessageTopic: getLastMessageTopic(state, props.narrow),
+    caughtUp: getCaughtUpForNarrow(state, props.narrow),
+    stream: getStreamInNarrow(state, props.narrow),
+    videoChatProvider: getVideoChatProvider(state),
+  })),
+  withSafeAreaInsets,
+)(withGetText(ComposeBox));

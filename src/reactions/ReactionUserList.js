@@ -1,56 +1,37 @@
 /* @flow strict-local */
-import React, { PureComponent } from 'react';
+import React from 'react';
 import { FlatList } from 'react-native';
-import { connect } from '../react-redux';
 
-import type { Dispatch, UserOrBot } from '../types';
+import * as NavigationService from '../nav/NavigationService';
+import type { UserId, UserOrBot } from '../types';
 import UserItem from '../users/UserItem';
 import { navigateToAccountDetails } from '../actions';
 
 type Props = $ReadOnly<{|
-  dispatch: Dispatch,
-  reactedUserIds: $ReadOnlyArray<number>,
-  allUsersById: Map<number, UserOrBot>,
+  reactedUserIds: $ReadOnlyArray<UserId>,
 |}>;
 
 /**
  * Component showing who made a given reaction on a given message.
  *
- * Used within `MessageReactionList`.
+ * Used within `MessageReactionsScreen`.
  */
-class ReactionUserList extends PureComponent<Props> {
-  handlePress = (userId: number) => {
-    const { dispatch } = this.props;
-    dispatch(navigateToAccountDetails(userId));
-  };
+export default function ReactionUserList(props: Props) {
+  const { reactedUserIds } = props;
 
-  render() {
-    const { reactedUserIds, allUsersById } = this.props;
-
-    return (
-      <FlatList
-        data={reactedUserIds}
-        keyExtractor={userId => `${userId}`}
-        renderItem={({ item }) => {
-          const user = allUsersById.get(item);
-          if (!user) {
-            return null;
-          }
-          return (
-            <UserItem
-              key={user.user_id}
-              fullName={user.full_name}
-              avatarUrl={user.avatar_url}
-              email={user.email}
-              onPress={() => {
-                this.handlePress(user.user_id);
-              }}
-            />
-          );
-        }}
-      />
-    );
-  }
+  return (
+    <FlatList
+      data={reactedUserIds}
+      keyExtractor={userId => `${userId}`}
+      renderItem={({ item }) => (
+        <UserItem
+          key={item}
+          userId={item}
+          onPress={(user: UserOrBot) => {
+            NavigationService.dispatch(navigateToAccountDetails(user.user_id));
+          }}
+        />
+      )}
+    />
+  );
 }
-
-export default connect<{||}, _, _>()(ReactionUserList);

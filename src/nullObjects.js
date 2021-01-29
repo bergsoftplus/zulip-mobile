@@ -1,5 +1,5 @@
 /* @flow strict-local */
-import type { User, Subscription } from './types';
+import type { Subscription } from './types';
 
 export const NULL_OBJECT = Object.freeze({});
 
@@ -28,17 +28,6 @@ export const NULL_ARRAY = Object.freeze([]);
  *  * Commit e22596c24 -- throwing an error, in a case that required some
  *    more work to decide that was the right thing.
  */
-
-/** DEPRECATED; don't add new uses.  See block comment above definition. */
-export const NULL_USER: User = {
-  avatar_url: '',
-  email: '',
-  full_name: '',
-  is_admin: false,
-  is_bot: false,
-  timezone: '',
-  user_id: -1,
-};
 
 /** DEPRECATED; don't add new uses.  See block comment above definition. */
 export const NULL_SUBSCRIPTION: Subscription = {

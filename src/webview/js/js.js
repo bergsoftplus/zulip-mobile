@@ -2,23 +2,27 @@
 /* eslint-disable no-useless-return */
 import type { Auth } from '../../types';
 import type {
-  WebViewUpdateEvent,
-  WebViewUpdateEventContent,
-  WebViewUpdateEventFetching,
-  WebViewUpdateEventTyping,
-  WebViewUpdateEventReady,
-  WebViewUpdateEventMessagesRead,
-} from '../webViewHandleUpdates';
+  WebViewInboundEvent,
+  WebViewInboundEventContent,
+  WebViewInboundEventFetching,
+  WebViewInboundEventTyping,
+  WebViewInboundEventReady,
+  WebViewInboundEventMessagesRead,
+} from '../generateInboundEvents';
+import { makeUserId } from '../../api/idTypes';
 
 import InboundEventLogger from './InboundEventLogger';
 import sendMessage from './sendMessage';
 import rewriteHtml from './rewriteHtml';
+import { toggleSpoiler } from './spoilers';
 
 /*
  * Supported platforms:
  *
- * * We support iOS 10.  So this code needs to work on Mobile Safari 10.
- *   Graceful degradation is acceptable below iOS 12 / Mobile Safari 12.
+ * * (When updating these, be sure to update tools/generate-webview-js too.)
+ *
+ * * We support iOS 11.  So this code needs to work on Mobile Safari 11.
+ *   Graceful degradation is acceptable below iOS 13 / Mobile Safari 13.
  *
  * * For Android, core functionality needs to work on Chrome 44.
  *   Graceful degradation is acceptable below Chrome 58.
@@ -38,13 +42,20 @@ import rewriteHtml from './rewriteHtml';
  *   about our version-support strategy.
  */
 
+/**
+ * A copy of RN's `Platform.OS`.
+ *
+ * Provided by the template in `script.js`.
+ */
+declare var platformOS: string;
+
 /* eslint-disable no-extend-native */
 
 /* Polyfill Array.from. Native in Chrome 45 and at least Safari 13.
    Leaves out some of the fancy features (see MDN). */
 type ArrayLike<T> = { [indexer: number]: T, length: number, ... };
 if (!Array.from) {
-  // $FlowFixMe (polyfill)
+  // $FlowFixMe[cannot-write] (polyfill)
   Array.from = function from<T>(arr: ArrayLike<T>): Array<T> {
     return Array.prototype.slice.call(arr);
   };
@@ -58,7 +69,8 @@ if (!Array.from) {
  * Uses Element#matches, which we have a separate polyfill for.
  */
 if (!Element.prototype.closest) {
-  // $FlowFixMe closest is not writable... except it's absent here.
+  /* $FlowFixMe[cannot-write]: closest is not writable... except it's
+     absent here. */
   Element.prototype.closest = function closest(selector) {
     let element = this;
     while (element && !element.matches(selector)) {
@@ -71,7 +83,7 @@ if (!Element.prototype.closest) {
 /* Polyfill String#startsWith. Native in Mobile Safari 9, Chrome 49.
    Taken (with minor edits) from the relevant MDN page. */
 if (!String.prototype.startsWith) {
-  // $FlowFixMe (polyfill)
+  // $FlowFixMe[cannot-write] (polyfill)
   String.prototype.startsWith = function startsWith(search: string, rawPos: number) {
     const pos = rawPos > 0 ? rawPos | 0 : 0;
     return this.substring(pos, pos + search.length) === search;
@@ -82,7 +94,7 @@ if (!String.prototype.startsWith) {
    Based directly on the current ECMAScript draft:
      https://tc39.es/ecma262/#sec-string.prototype.includes */
 if (!String.prototype.includes) {
-  // $FlowFixMe (polyfill)
+  // $FlowFixMe[cannot-write] (polyfill)
   String.prototype.includes = function includes(search: string, start: number = 0) {
     /* required by the spec, but not worth the trouble */
     // if (search instanceof RegExp) { throw new TypeError('...'); }
@@ -264,7 +276,7 @@ function walkToMessage(
 ): ?Element {
   let element: ?Element = start;
   while (element && !element.classList.contains('message')) {
-    // $FlowFixMe: doesn't use finite type of `step`
+    // $FlowFixMe[prop-missing]: doesn't use finite type of `step`
     element = element[step];
   }
   return element;
@@ -335,7 +347,7 @@ function visibleMessageIds(): { first: number, last: number } {
         first = Math.min(first, id);
         last = Math.max(last, id);
       }
-      // $FlowFixMe: doesn't use finite type of `step`
+      // $FlowFixMe[prop-missing]: doesn't use finite type of `step`
       element = element[step];
     }
   }
@@ -402,7 +414,7 @@ const sendScrollMessage = () => {
   };
   sendMessage({
     type: 'scroll',
-    // See MessageListEventScroll for the meanings of these properties.
+    // See WebViewOutboundEventScroll for the meanings of these properties.
     offsetHeight: documentBody.offsetHeight,
     innerHeight: window.innerHeight,
     scrollY: window.scrollY,
@@ -431,7 +443,7 @@ const sendScrollMessageIfListShort = () => {
 let scrollEventsDisabled = true;
 
 let hasLongPressed = false;
-let longPressTimeout;
+let longPressTimeout = undefined;
 let lastTouchPositionX = -1;
 let lastTouchPositionY = -1;
 
@@ -509,7 +521,31 @@ const scrollToPreserve = (msgId: number, prevBoundTop: number) => {
   window.scrollBy(0, newBoundRect.top - prevBoundTop);
 };
 
-const handleUpdateEventContent = (uevent: WebViewUpdateEventContent) => {
+/**
+ * Run a function after layout properties have updated from DOM changes.
+ *
+ * This is important if we have just set innerHTML and need to read
+ * properties like `scrollHeight` from the DOM, as the re-layout may happen
+ * asynchronously.
+ */
+const runAfterLayout = (fn: () => void) => {
+  if (platformOS === 'android') {
+    // On Android/Chrome, empirically the updates happen synchronously, so
+    // there's no need to delay.  See discussion:
+    //   https://github.com/zulip/zulip-mobile/pull/4370
+    fn();
+    return;
+  }
+
+  // On iOS/Safari, we must wait.  See:
+  //   https://macarthur.me/posts/when-dom-updates-appear-to-be-asynchronous
+  requestAnimationFrame(() => {
+    // this runs immediately before the next repaint
+    fn();
+  });
+};
+
+const handleInboundEventContent = (uevent: WebViewInboundEventContent) => {
   let target: ScrollTarget;
   if (uevent.updateStrategy === 'replace') {
     target = { type: 'none' };
@@ -529,20 +565,21 @@ const handleUpdateEventContent = (uevent: WebViewUpdateEventContent) => {
 
   rewriteHtml(uevent.auth);
 
-  if (target.type === 'bottom') {
-    scrollToBottom();
-  } else if (target.type === 'anchor') {
-    scrollToMessage(target.messageId);
-  } else if (target.type === 'preserve') {
-    scrollToPreserve(target.msgId, target.prevBoundTop);
-  }
+  runAfterLayout(() => {
+    if (target.type === 'bottom') {
+      scrollToBottom();
+    } else if (target.type === 'anchor') {
+      scrollToMessage(target.messageId);
+    } else if (target.type === 'preserve') {
+      scrollToPreserve(target.msgId, target.prevBoundTop);
+    }
 
-  sendScrollMessageIfListShort();
+    sendScrollMessageIfListShort();
+  });
 };
 
 // We call this when the webview's content first loads.
 export const handleInitialLoad = (
-  platformOS: string,
   scrollMessageId: number | null,
   // The `realm` part of an `Auth` object is a URL object. It's passed
   // in its stringified form.
@@ -572,31 +609,31 @@ export const handleInitialLoad = (
  *
  */
 
-const handleUpdateEventFetching = (uevent: WebViewUpdateEventFetching) => {
+const handleInboundEventFetching = (uevent: WebViewInboundEventFetching) => {
   showHideElement('message-loading', uevent.showMessagePlaceholders);
   showHideElement('spinner-older', uevent.fetchingOlder);
   showHideElement('spinner-newer', uevent.fetchingNewer);
 };
 
-const handleUpdateEventTyping = (uevent: WebViewUpdateEventTyping) => {
+const handleInboundEventTyping = (uevent: WebViewInboundEventTyping) => {
   const elementTyping = document.getElementById('typing');
   if (elementTyping) {
     elementTyping.innerHTML = uevent.content;
-    setTimeout(() => scrollToBottomIfNearEnd());
+    runAfterLayout(() => scrollToBottomIfNearEnd());
   }
 };
 
 /**
  * Echo back the handshake message, confirming the channel is ready.
  */
-const handleUpdateEventReady = (uevent: WebViewUpdateEventReady) => {
+const handleInboundEventReady = (uevent: WebViewInboundEventReady) => {
   sendMessage({ type: 'ready' });
 };
 
 /**
  * Handles messages that have been read outside of the WebView
  */
-const handleUpdateEventMessagesRead = (uevent: WebViewUpdateEventMessagesRead) => {
+const handleInboundEventMessagesRead = (uevent: WebViewInboundEventMessagesRead) => {
   if (uevent.messageIds.length === 0) {
     return;
   }
@@ -607,32 +644,33 @@ const handleUpdateEventMessagesRead = (uevent: WebViewUpdateEventMessagesRead) =
   });
 };
 
-const eventUpdateHandlers = {
-  content: handleUpdateEventContent,
-  fetching: handleUpdateEventFetching,
-  typing: handleUpdateEventTyping,
-  ready: handleUpdateEventReady,
-  read: handleUpdateEventMessagesRead,
+const inboundEventHandlers = {
+  content: handleInboundEventContent,
+  fetching: handleInboundEventFetching,
+  typing: handleInboundEventTyping,
+  ready: handleInboundEventReady,
+  read: handleInboundEventMessagesRead,
 };
 
 // See `handleInitialLoad` for how this gets subscribed to events.
 const handleMessageEvent: MessageEventListener = e => {
   scrollEventsDisabled = true;
+  // This decoding inverts `base64Utf8Encode`.
   const decodedData = decodeURIComponent(escape(window.atob(e.data)));
-  const rawUpdateEvents = JSON.parse(decodedData);
-  const updateEvents: WebViewUpdateEvent[] = rawUpdateEvents.map(updateEvent => ({
-    ...updateEvent,
+  const rawInboundEvents = JSON.parse(decodedData);
+  const inboundEvents: WebViewInboundEvent[] = rawInboundEvents.map(inboundEvent => ({
+    ...inboundEvent,
     // A URL object doesn't round-trip through JSON; we get the string
     // representation. So, "revive" it back into a URL object.
-    ...(updateEvent.auth
-      ? { auth: { ...updateEvent.auth, realm: new URL(updateEvent.auth.realm) } }
+    ...(inboundEvent.auth
+      ? { auth: { ...inboundEvent.auth, realm: new URL(inboundEvent.auth.realm) } }
       : {}),
   }));
 
-  updateEvents.forEach((uevent: WebViewUpdateEvent) => {
+  inboundEvents.forEach((uevent: WebViewInboundEvent) => {
     eventLogger.maybeCaptureInboundEvent(uevent);
-    // $FlowFixMe
-    eventUpdateHandlers[uevent.type](uevent);
+    // $FlowFixMe[prop-missing]
+    inboundEventHandlers[uevent.type](uevent);
   });
   scrollEventsDisabled = false;
 };
@@ -690,7 +728,7 @@ documentBody.addEventListener('click', (e: MouseEvent) => {
   if (target.matches('.avatar-img')) {
     sendMessage({
       type: 'avatar',
-      fromUserId: requireNumericAttribute(target, 'data-sender-id'),
+      fromUserId: makeUserId(requireNumericAttribute(target, 'data-sender-id')),
     });
     return;
   }
@@ -706,7 +744,7 @@ documentBody.addEventListener('click', (e: MouseEvent) => {
   if (target.matches('.user-mention')) {
     sendMessage({
       type: 'mention',
-      userId: requireNumericAttribute(target, 'data-user-id'),
+      userId: makeUserId(requireNumericAttribute(target, 'data-user-id')),
     });
     return;
   }
@@ -766,9 +804,15 @@ documentBody.addEventListener('click', (e: MouseEvent) => {
     });
   }
 
+  const spoilerHeader = target.closest('.spoiler-header');
+  if (spoilerHeader instanceof HTMLElement) {
+    toggleSpoiler(spoilerHeader);
+    return;
+  }
+
   const messageElement = target.closest('.message-brief');
   if (messageElement) {
-    messageElement.getElementsByClassName('timestamp')[0].classList.toggle('show');
+    messageElement.getElementsByClassName('msg-timestamp')[0].classList.toggle('show');
     return;
   }
 });

@@ -5,13 +5,18 @@ import type { BackgroundData } from '../MessageList';
 import {
   streamNarrow,
   topicNarrow,
-  privateNarrow,
-  groupNarrow,
   caseNarrow,
+  pmNarrowFromRecipients,
+  keyFromNarrow,
 } from '../../utils/narrow';
 import { foregroundColorFromBackground } from '../../utils/color';
 import { humanDate } from '../../utils/date';
-import { pmUiRecipientsFromMessage, pmKeyRecipientsFromMessage } from '../../utils/recipient';
+import {
+  pmUiRecipientsFromMessage,
+  pmKeyRecipientsFromMessage,
+  streamNameOfStreamMessage,
+} from '../../utils/recipient';
+import { base64Utf8Encode } from '../../utils/encoding';
 
 const renderSubject = item =>
   // TODO: pin down if '' happens, and what its proper semantics are.
@@ -22,7 +27,7 @@ const renderSubject = item =>
 export default (
   { ownUser, subscriptions }: BackgroundData,
   narrow: Narrow,
-  item: Message | Outbox | {||},
+  item: Message | Outbox,
 ) => {
   type HeaderStyle = 'none' | 'topic+date' | 'full';
   const headerStyle: HeaderStyle = caseNarrow(narrow, {
@@ -30,7 +35,6 @@ export default (
     topic: () => 'none',
 
     pm: () => 'none',
-    groupPm: () => 'none',
 
     home: () => 'full',
     starred: () => 'full',
@@ -39,18 +43,15 @@ export default (
     search: () => 'full',
   });
 
-  if (!item.type) {
-    return '';
-  }
-
   if (item.type === 'stream' && headerStyle === 'topic+date') {
-    const topicNarrowStr = JSON.stringify(topicNarrow(item.display_recipient, item.subject));
+    const streamName = streamNameOfStreamMessage(item);
+    const topicNarrowStr = keyFromNarrow(topicNarrow(streamName, item.subject));
     const topicHtml = renderSubject(item);
 
     return template`
 <div
   class="header-wrapper header topic-header"
-  data-narrow="${topicNarrowStr}"
+  data-narrow="${base64Utf8Encode(topicNarrowStr)}"
   data-msg-id="${item.id}"
 >
   <div class="topic-text">$!${topicHtml}</div>
@@ -60,26 +61,24 @@ export default (
   }
 
   if (item.type === 'stream' && headerStyle === 'full') {
-    // Somehow, if `item.display_recipient` appears in the `find` callback,
-    // Flow worries that `item` will turn out to be a {||} after all.
-    const { display_recipient } = item;
-    const stream = subscriptions.find(x => x.name === display_recipient);
+    const streamName = streamNameOfStreamMessage(item);
+    const stream = subscriptions.find(x => x.name === streamName);
 
     const backgroundColor = stream ? stream.color : 'hsl(0, 0%, 80%)';
     const textColor = foregroundColorFromBackground(backgroundColor);
-    const streamNarrowStr = JSON.stringify(streamNarrow(item.display_recipient));
-    const topicNarrowStr = JSON.stringify(topicNarrow(item.display_recipient, item.subject));
+    const streamNarrowStr = keyFromNarrow(streamNarrow(streamName));
+    const topicNarrowStr = keyFromNarrow(topicNarrow(streamName, item.subject));
     const topicHtml = renderSubject(item);
 
     return template`
 <div class="header-wrapper header stream-header topic-header"
     data-msg-id="${item.id}"
-    data-narrow="${topicNarrowStr}">
+    data-narrow="${base64Utf8Encode(topicNarrowStr)}">
   <div class="header stream-text"
        style="color: ${textColor};
               background: ${backgroundColor}"
-       data-narrow="${streamNarrowStr}">
-    # ${item.display_recipient}
+       data-narrow="${base64Utf8Encode(streamNarrowStr)}">
+    # ${streamName}
   </div>
   <div class="topic-text">$!${topicHtml}</div>
   <div class="topic-date">${humanDate(new Date(item.timestamp * 1000))}</div>
@@ -88,17 +87,14 @@ export default (
   }
 
   if (item.type === 'private' && headerStyle === 'full') {
-    const keyRecipients = pmKeyRecipientsFromMessage(item, ownUser);
-    const narrowObj =
-      keyRecipients.length === 1
-        ? privateNarrow(keyRecipients[0].email)
-        : groupNarrow(keyRecipients.map(r => r.email));
-    const privateNarrowStr = JSON.stringify(narrowObj);
+    const keyRecipients = pmKeyRecipientsFromMessage(item, ownUser.user_id);
+    const narrowObj = pmNarrowFromRecipients(keyRecipients);
+    const narrowStr = keyFromNarrow(narrowObj);
 
-    const uiRecipients = pmUiRecipientsFromMessage(item, ownUser);
+    const uiRecipients = pmUiRecipientsFromMessage(item, ownUser.user_id);
     return template`
 <div class="header-wrapper private-header header"
-     data-narrow="${privateNarrowStr}"
+     data-narrow="${base64Utf8Encode(narrowStr)}"
      data-msg-id="${item.id}">
   ${uiRecipients
     .map(r => r.full_name)

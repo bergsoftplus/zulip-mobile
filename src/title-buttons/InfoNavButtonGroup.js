@@ -1,38 +1,27 @@
 /* @flow strict-local */
+import React from 'react';
 
-import React, { PureComponent } from 'react';
-
-import type { Dispatch, Narrow, UserOrBot } from '../types';
-import { connect } from '../react-redux';
-import { getRecipientsInGroupNarrow } from '../selectors';
+import type { UserId } from '../types';
+import * as NavigationService from '../nav/NavigationService';
 import NavButton from '../nav/NavButton';
 import { navigateToGroupDetails } from '../actions';
 
-type SelectorProps = {|
-  recipients: UserOrBot[],
-|};
-
 type Props = $ReadOnly<{|
   color: string,
-  narrow: Narrow,
-
-  dispatch: Dispatch,
-  ...SelectorProps,
+  userIds: $ReadOnlyArray<UserId>,
 |}>;
 
-class InfoNavButtonGroup extends PureComponent<Props> {
-  handlePress = () => {
-    const { dispatch, recipients } = this.props;
-    dispatch(navigateToGroupDetails(recipients));
-  };
+export default function InfoNavButtonGroup(props: Props) {
+  const { color } = props;
 
-  render() {
-    const { color } = this.props;
-
-    return <NavButton name="info" color={color} onPress={this.handlePress} />;
-  }
+  return (
+    <NavButton
+      name="info"
+      color={color}
+      onPress={() => {
+        const { userIds } = props;
+        NavigationService.dispatch(navigateToGroupDetails(userIds));
+      }}
+    />
+  );
 }
-
-export default connect<SelectorProps, _, _>((state, props) => ({
-  recipients: getRecipientsInGroupNarrow(state, props.narrow),
-}))(InfoNavButtonGroup);

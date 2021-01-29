@@ -275,7 +275,26 @@ pick just one, and that's the one we use.
 [gh-close-issue-keywords]: https://help.github.com/en/github/managing-your-work-on-github/closing-issues-using-keywords
 
 
-## Internal to our codebase
+## JavaScript and Flow
+
+**Use `invariant` for runtime assertions the type-checker can use**:
+If there's a fact you're sure is true at a certain point in the code,
+and you want the type-checker to know it so it will accept the code
+that comes after, then go ahead and assert that fact with the
+`invariant` function.
+
+Flow [has a feature][flow-invariant-pseudodocs] (albeit not well
+documented) where a call `invariant(foo, …)` is treated much like
+saying `if (!foo) { throw new Error(…); }`.  Meanwhile at runtime,
+that's essentially what the implementation of `invariant` does.
+
+Use `invariant` only for conditions which, if they ever failed, would
+definitely mean a bug within our own zulip-mobile codebase.
+
+[flow-invariant-pseudodocs]: https://github.com/facebook/flow/issues/6052
+
+
+## Internal to Zulip and our codebase
 
 ### Zulip API bindings
 
@@ -311,7 +330,45 @@ in exactly the same places as we're defining those other values.  The
 apart from related functions at different layers.
 
 
+### Zulip data model
+
+**Avoid using `display_recipient` directly**: When inspecting a
+`Message` object, or a relative like `Outbox`, never consume its
+`display_recipient` property directly.  Instead, always use one of the
+helper functions found in `src/utils/recipient.js`.
+
+One reason we do this is because the type and the semantics of that
+property, which we take directly from message objects provided by the
+Zulip server API, are complicated and have some legacy quirks; using
+the helper functions helps keep other code simpler and well-typed.
+Using the helper functions also helps us find all the places in the
+code where we're using a given aspect of the `display_recipient`
+semantics, which makes refactoring easier.
+
+
 ## WebView: HTML, CSS, JS
+
+### HTML
+
+**Avoid classes that the server might use in messages:** In our own
+HTML in the webview, we avoid using any class names which appear in
+message content as rendered by the server.
+
+There isn't a single comprehensive list of these.  Most of them can be
+found in `static/styles/rendered_markdown.css` in zulip/zulip, which
+is where the webapp styles the message content.  In addition to names
+used in current Zulip Server versions, we need to avoid those used in
+the past -- not only because some servers will still be on old
+versions, but also because old messages generally aren't re-rendered
+into HTML even after the rendering logic changes.
+
+(In principle we should take steps to avoid future names, too.  We
+don't worry about that for now, because this hasn't often been a problem.)
+
+See [chat discussion][class-conflict-chat] for further rationale.
+
+[class-conflict-chat]: https://chat.zulip.org/#narrow/stream/48-mobile/topic/Weird.20timestamps/near/1075485
+
 
 ### Styling/CSS
 

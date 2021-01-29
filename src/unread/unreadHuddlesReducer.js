@@ -1,5 +1,6 @@
 /* @flow strict-local */
-import type { UnreadHuddlesState, Action } from '../types';
+import type { Action } from '../types';
+import type { UnreadHuddlesState } from './unreadModelTypes';
 import {
   REALM_INIT,
   LOGOUT,
@@ -8,7 +9,7 @@ import {
   EVENT_MESSAGE_DELETE,
   EVENT_UPDATE_MESSAGE_FLAGS,
 } from '../actionConstants';
-import { pmUnreadsKeyFromMessage } from '../utils/recipient';
+import { pmUnreadsKeyFromMessage, recipientsOfPrivateMessage } from '../utils/recipient';
 import { addItemsToHuddleArray, removeItemsDeeply } from './unreadHelpers';
 import { NULL_ARRAY } from '../nullObjects';
 
@@ -19,11 +20,11 @@ const eventNewMessage = (state, action) => {
     return state;
   }
 
-  if (action.message.display_recipient.length < 3) {
+  if (recipientsOfPrivateMessage(action.message).length < 3) {
     return state;
   }
 
-  if (action.ownEmail && action.ownEmail === action.message.sender_email) {
+  if (action.ownUserId === action.message.sender_id) {
     return state;
   }
 

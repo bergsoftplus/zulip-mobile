@@ -13,11 +13,7 @@ import type {
   RealmEmojiById,
   RealmState,
   SettingsState,
-  StreamUnreadItem,
   TypingState,
-  UnreadHuddlesState,
-  UnreadMentionsState,
-  UnreadPmsState,
   Account,
   Debug,
   Subscription,
@@ -87,14 +83,6 @@ export const getStreams = (state: GlobalState): Stream[] => state.streams;
 export const getPresence = (state: GlobalState): PresenceState => state.presence;
 
 export const getOutbox = (state: GlobalState): Outbox[] => state.outbox;
-
-export const getUnreadStreams = (state: GlobalState): StreamUnreadItem[] => state.unread.streams;
-
-export const getUnreadPms = (state: GlobalState): UnreadPmsState => state.unread.pms;
-
-export const getUnreadHuddles = (state: GlobalState): UnreadHuddlesState => state.unread.huddles;
-
-export const getUnreadMentions = (state: GlobalState): UnreadMentionsState => state.unread.mentions;
 
 export const getRealm = (state: GlobalState): RealmState => state.realm;
 

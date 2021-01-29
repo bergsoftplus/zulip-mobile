@@ -1,7 +1,6 @@
 /* @flow strict-local */
 
-import type { User } from '../../api/modelTypes';
-import { streamNarrow, topicNarrow, groupNarrow, STARRED_NARROW } from '../narrow';
+import { streamNarrow, topicNarrow, pmNarrowFromUsersUnsafe, STARRED_NARROW } from '../narrow';
 import {
   isInternalLink,
   isMessageLink,
@@ -15,28 +14,156 @@ import * as eg from '../../__tests__/lib/exampleData';
 const realm = new URL('https://example.com');
 
 describe('isInternalLink', () => {
-  test('when link is external, return false', () => {
-    expect(isInternalLink('https://example.com', new URL('https://another.com'))).toBe(false);
-  });
+  const cases: $ReadOnlyArray<[boolean, string, string] | [boolean, string, string, URL]> = [
+    [true, 'fragment-only, to a narrow', '#narrow/stream/jest/topic/topic1'],
+    [false, 'fragment-only, wrong fragment', '#nope'],
+    [true, 'path-absolute, to a narrow', '/#narrow/stream/jest'],
+    [false, 'path-absolute, wrong fragment', '/#nope'],
+    [false, 'path-absolute, wrong path', '/user_uploads/#narrow/stream/jest'],
+    [true, 'same domain, to a narrow', 'https://example.com/#narrow/stream/jest'],
+    [false, 'same domain, wrong fragment', 'https://example.com/#nope'],
+    [false, 'same domain, wrong path', 'https://example.com/user_uploads/#narrow/stream/jest'],
+    [false, 'wrong domain', 'https://another.com/#narrow/stream/jest'],
 
-  test('when link is internal, but not in app, return false', () => {
-    expect(isInternalLink('https://example.com/user_uploads', realm)).toBe(false);
-  });
+    [true, 'fragment-only, with numeric IDs', '#narrow/stream/123-jest/topic/topic1'],
+    [true, 'path-absolute, with numeric IDs', '/#narrow/stream/123-jest'],
+    [true, 'path-absolute, with numeric IDs', '/#narrow/pm-with/123-mark'],
 
-  test('when link is internal and in app, return true', () => {
-    expect(isInternalLink('https://example.com/#narrow/stream/jest', realm)).toBe(true);
-  });
+    [false, 'fragment-only, #narrowly', '#narrowly/stream/jest'],
+    [false, 'path-absolute, #narrowly', '/#narrowly/stream/jest'],
+    [false, 'same domain, #narrowly', 'https://example.com/#narrowly/stream/jest'],
 
-  test('when link is relative and in app, return true', () => {
-    expect(isInternalLink('#narrow/stream/jest/topic/topic1', realm)).toBe(true);
-    expect(isInternalLink('/#narrow/stream/jest', realm)).toBe(true);
-  });
+    [false, 'same domain, double slash', 'https://example.com//#narrow/stream/jest'],
+    [false, 'same domain, triple slash', 'https://example.com///#narrow/stream/jest'],
 
-  test('links including IDs are also recognized', () => {
-    expect(isInternalLink('#narrow/stream/123-jest/topic/topic1', realm)).toBe(true);
-    expect(isInternalLink('/#narrow/stream/123-jest', realm)).toBe(true);
-    expect(isInternalLink('/#narrow/pm-with/123-mark', realm)).toBe(true);
-  });
+    // These examples may be odd-looking URLs, but are nevertheless valid.
+    [true, 'scheme-relative', '//example.com/#narrow/stream/jest'],
+    [true, 'path-relative, nop path', '.#narrow/stream/jest'],
+    [true, 'path-relative, nop path', './#narrow/stream/jest'],
+    [true, 'path-relative, nop path', '..#narrow/stream/jest'],
+    [true, 'path-relative, nop path', '../#narrow/stream/jest'],
+    [true, 'path-relative, nop path', 'foo/..#narrow/stream/jest'],
+    [true, 'path-relative, nop path', 'foo/../#narrow/stream/jest'],
+    [true, 'path-relative, nop path', 'foo/bar/../../../baz/.././#narrow/stream/jest'],
+    [true, 'path-absolute, nop path', '/.#narrow/stream/jest'],
+    [true, 'path-absolute, nop path', '/./#narrow/stream/jest'],
+    [true, 'path-absolute, nop path', '/..#narrow/stream/jest'],
+    [true, 'path-absolute, nop path', '/../#narrow/stream/jest'],
+    [true, 'path-absolute, nop path', '/foo/..#narrow/stream/jest'],
+    [true, 'path-absolute, nop path', '/foo/../#narrow/stream/jest'],
+    [true, 'path-absolute, nop path', '/foo/bar/../../../baz/.././#narrow/stream/jest'],
+    [true, 'same domain, nop path', 'https://example.com/.#narrow/stream/jest'],
+    [true, 'same domain, nop path', 'https://example.com/./#narrow/stream/jest'],
+    [true, 'same domain, nop path', 'https://example.com/..#narrow/stream/jest'],
+    [true, 'same domain, nop path', 'https://example.com/../#narrow/stream/jest'],
+    [true, 'same domain, nop path', 'https://example.com/foo/..#narrow/stream/jest'],
+    [true, 'same domain, nop path', 'https://example.com/foo/../#narrow/stream/jest'],
+    [
+      true,
+      'same domain, nop path',
+      'https://example.com/foo/bar/../../../baz/.././#narrow/stream/jest',
+    ],
+    [true, 'same domain, %-encoded host', 'https://%65xample%2ecom/#narrow/stream/jest'],
+    // This one fails because our polyfilled URL implementation has IDNA stripped out.
+    // [true, 'same domain, punycoded host', 'https://example.xn--h2brj9c/#narrow/stream/jest', new URL('https://example.भारत/'),], // FAILS
+    [
+      true,
+      'same domain, punycodable host',
+      'https://example.भारत/#narrow/stream/jest',
+      new URL('https://example.भारत/'),
+    ],
+    // This one fails because our polyfilled URL implementation has IDNA stripped out.
+    // [true, 'same domain, IDNA-mappable', 'https://ℯⅩªm🄿ₗℰ.ℭᴼⓂ/#narrow/stream/jest'], // FAILS
+    [
+      true,
+      'same IPv4 address, %-encoded',
+      'http://%31%39%32%2e168%2e0%2e1/#narrow/stream/jest',
+      new URL('http://192.168.0.1/'),
+    ],
+    // This one fails because our polyfilled URL implementation has IDNA stripped out.
+    // [true, 'same IPv4 address, IDNA-mappable', 'http://１𝟗𝟚。①⁶🯸．₀｡𝟭/#narrow/stream/jest', new URL('http://192.168.0.1/'),], // FAILS
+    [
+      true,
+      'same IPv4 address, suppressed zero octet',
+      'http://192.168.1/#narrow/stream/jest',
+      new URL('http://192.168.0.1/'),
+    ],
+    // TODO: Add tests for IPv6.
+    [true, 'same domain, empty port', 'https://example.com:/#narrow/stream/jest'],
+    [true, 'same domain, redundant port', 'https://example.com:443/#narrow/stream/jest'],
+    [
+      true,
+      'same domain, padded port',
+      'https://example.com:00000000444/#narrow/stream/jest',
+      new URL('https://example.com:444/'),
+    ],
+
+    // These examples are not "valid URL strings", but are nevertheless
+    // accepted by the URL parser.
+    [true, 'fragment-only, with whitespace', '    #\tnar\rr\now/stream/jest  '],
+    [true, 'path-absolute, with whitespace', '    /\t#\nnar\rrow/stream/jest   '],
+    [true, 'same domain, with whitespace', '  ht\ttp\ns\r://ex\nample.com/#\nnarrow/stream/jest'],
+    [true, 'scheme but path-relative', 'https:#narrow/stream/jest'],
+    [true, 'scheme but path-relative, nop path', 'https:./foo/../#narrow/stream/jest'],
+    [true, 'scheme but path-absolute', 'https:/#narrow/stream/jest'],
+    [true, 'scheme but path-absolute, nop path', 'https:/./foo/../#narrow/stream/jest'],
+    [
+      true,
+      'same IPv4 address, in hex and octal',
+      'http://0xc0.0250.0.1/#narrow/stream/jest',
+      new URL('http://192.168.0.1/'),
+    ],
+    [
+      true,
+      'same IPv4 address, with joined octets',
+      'http://192.11010049/#narrow/stream/jest',
+      new URL('http://192.168.0.1/'),
+    ],
+    [
+      true,
+      'same IPv4 address, with trailing dot',
+      'http://192.168.0.1./#narrow/stream/jest',
+      new URL('http://192.168.0.1/'),
+    ],
+
+    // These examples may seem weird, but a previous version accepted most of them.
+    [
+      false,
+      'wrong domain, realm-like path, narrow-like fragment',
+      // This one, except possibly the fragment, is a 100% realistic link
+      // for innocent normal use.  The buggy old version narrowly avoided
+      // accepting it... but would accept all the variations below.
+      'https://web.archive.org/web/*/https://example.com/#narrow/stream/jest',
+    ],
+    [
+      false,
+      'odd scheme, wrong domain, realm-like path, narrow-like fragment',
+      'ftp://web.archive.org/web/*/https://example.com/#narrow/stream/jest',
+    ],
+    [
+      false,
+      'same domain, realm-like path, narrow-like fragment',
+      'https://example.com/web/*/https://example.com/#narrow/stream/jest',
+    ],
+    [
+      false,
+      'path-absolute, realm-like path, narrow-like fragment',
+      '/web/*/https://example.com/#narrow/stream/jest',
+    ],
+    [
+      false,
+      'path-relative, realm-like path, narrow-like fragment',
+      'web/*/https://example.com/#narrow/stream/jest',
+    ],
+  ];
+
+  /* $FlowFixMe[invalid-tuple-index]:
+     realm_ is URL | void, but complains of out-of-bounds access */
+  for (const [expected, description, url, realm_] of cases) {
+    test(`${expected ? 'accept' : 'reject'} ${description}: ${url}`, () => {
+      expect(isInternalLink(url, realm_ ?? realm)).toBe(expected);
+    });
+  }
 });
 
 describe('isMessageLink', () => {
@@ -124,12 +251,7 @@ describe('decodeHashComponent', () => {
 });
 
 describe('getNarrowFromLink', () => {
-  const [userA, userB, userC] = [eg.makeUser(), eg.makeUser(), eg.makeUser()];
-  const usersById: Map<number, User> = new Map([
-    [userA.user_id, userA],
-    [userB.user_id, userB],
-    [userC.user_id, userC],
-  ]);
+  const [userB, userC] = [eg.makeUser(), eg.makeUser()];
 
   const streamGeneral = eg.makeStream({ name: 'general' });
 
@@ -137,8 +259,8 @@ describe('getNarrowFromLink', () => {
     getNarrowFromLink(
       url,
       new URL('https://example.com'),
-      usersById,
       new Map(streams.map(s => [s.stream_id, s])),
+      eg.selfUser.user_id,
     );
 
   test('on link to realm domain but not narrow: return null', () => {
@@ -146,7 +268,7 @@ describe('getNarrowFromLink', () => {
   });
 
   describe('on stream links', () => {
-    // Tell Jest to recognize `expectStream` as a helper function that
+    // Tell ESLint to recognize `expectStream` as a helper function that
     // runs assertions.
     /* eslint jest/expect-expect: ["error", { "assertFunctionNames": ["expect", "expectStream"] }] */
     const expectStream = (operand, streams, expectedName: null | string) => {
@@ -256,16 +378,18 @@ describe('getNarrowFromLink', () => {
   });
 
   test('on group PM link', () => {
-    const ids = `${userA.user_id},${userB.user_id},${userC.user_id}`;
+    const ids = `${userB.user_id},${userC.user_id}`;
     expect(get(`https://example.com/#narrow/pm-with/${ids}-group`)).toEqual(
-      groupNarrow([userA.email, userB.email, userC.email]),
+      pmNarrowFromUsersUnsafe([userB, userC]),
     );
   });
 
-  test('if any of the user ids are not found: return null', () => {
-    const otherId = 1 + Math.max(userA.user_id, userB.user_id, userC.user_id);
-    const ids = `${userA.user_id},${userB.user_id},${otherId}`;
-    expect(get(`https://example.com/#narrow/pm-with/${ids}-group`)).toEqual(null);
+  test('on group PM link including self', () => {
+    // The webapp doesn't generate these, but best to handle them anyway.
+    const ids = `${eg.selfUser.user_id},${userB.user_id},${userC.user_id}`;
+    expect(get(`https://example.com/#narrow/pm-with/${ids}-group`)).toEqual(
+      pmNarrowFromUsersUnsafe([userB, userC]),
+    );
   });
 
   test('on a special link', () => {
@@ -273,9 +397,9 @@ describe('getNarrowFromLink', () => {
   });
 
   test('on a message link', () => {
-    const ids = `${userA.user_id},${userC.user_id}`;
+    const ids = `${userB.user_id},${userC.user_id}`;
     expect(get(`https://example.com/#narrow/pm-with/${ids}-group/near/2`)).toEqual(
-      groupNarrow([userA.email, userC.email]),
+      pmNarrowFromUsersUnsafe([userB, userC]),
     );
 
     expect(get('https://example.com/#narrow/stream/jest/topic/test/near/1')).toEqual(

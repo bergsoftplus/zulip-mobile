@@ -436,6 +436,53 @@ error: Build input file cannot be found:
 then try restarting Xcode.
 
 
+### Build failure: 'No "iOS Development" signing certificate'
+
+When trying to build the iOS app, if you get an error like this (in
+e.g. the `tools/ios build` log file; edited slightly for readability):
+
+```
+error: No signing certificate "iOS Development" found:
+  No "iOS Development" signing certificate matching team ID "66KHCWMEYB"
+  with a private key was found. (in target 'ZulipMobile' from
+  project 'ZulipMobile')
+```
+
+then a possible root cause of the missing certificate is that the
+team's Apple Developer Program membership needs to be renewed.
+Once the membership is fixed, the certificate should be generated
+automatically when needed.
+
+To inspect what certificates exist, see Xcode > Settings > Accounts.
+When all is well, there should be a cert of type "Apple Development"
+in the list of certs associated with the team.  (The reference in the
+error message to "iOS Development" corresponds to an alternative type
+which was the normal one before ca. 2020 and is still accepted.)
+
+Despite the reference to development, this error can appear when
+attempting a build for release.
+
+
+### Startup failure: "ReferenceError: SHA-1 for file … is not computed"
+
+When trying to run the app (with e.g. `react-native run-ios`), if you
+get an error like this (reformatted for readability):
+
+```
+ReferenceError: SHA-1 for file
+  /usr/local/lib/node_modules/react-native/node_modules/metro/src/lib/polyfills/require.js
+  (/usr/local/lib/node_modules/react-native/node_modules/metro/src/lib/polyfills/require.js)
+  is not computed
+```
+
+then the cause may be that your `node_modules/` directory isn't
+correctly built.  This can happen if you try to use `npm` to install
+the dependencies.  We use Yarn, and you should always use `yarn` (or
+`yarn install`, which means the same thing) and not `npm`.
+
+To fix the error, run `rm -rf node_modules` and then `yarn`.
+
+
 ### App shows a blank white screen
 
 If you're developing on a Linux machine, and when you start the dev version of

@@ -1,66 +1,49 @@
+/* @flow strict-local */
 import deepFreeze from 'deep-freeze';
 
 import getComposeInputPlaceholder from '../getComposeInputPlaceholder';
-import { privateNarrow, streamNarrow, topicNarrow, groupNarrow } from '../../utils/narrow';
+import {
+  pm1to1NarrowFromUser,
+  streamNarrow,
+  topicNarrow,
+  pmNarrowFromUsersUnsafe,
+} from '../../utils/narrow';
+import * as eg from '../../__tests__/lib/exampleData';
 
 describe('getComposeInputPlaceholder', () => {
+  const usersById = new Map([eg.selfUser, eg.otherUser, eg.thirdUser].map(u => [u.user_id, u]));
+  const ownUserId = eg.selfUser.user_id;
+
   test('returns "Message @ThisPerson" object for person narrow', () => {
-    const narrow = deepFreeze(privateNarrow('abc@zulip.com'));
-
-    const ownEmail = 'hamlet@zulip.com';
-
-    const usersByEmail = new Map([
-      [
-        'abc@zulip.com',
-        {
-          id: 23,
-          email: 'abc@zulip.com',
-          full_name: 'ABC',
-        },
-      ],
-      [
-        'xyz@zulip.com',
-        {
-          id: 22,
-          email: 'xyz@zulip.com',
-          full_name: 'XYZ',
-        },
-      ],
-    ]);
-
-    const placeholder = getComposeInputPlaceholder(narrow, ownEmail, usersByEmail);
-    expect(placeholder).toEqual({ text: 'Message {recipient}', values: { recipient: '@ABC' } });
+    const narrow = deepFreeze(pm1to1NarrowFromUser(eg.otherUser));
+    const placeholder = getComposeInputPlaceholder(narrow, ownUserId, usersById);
+    expect(placeholder).toEqual({
+      text: 'Message {recipient}',
+      values: { recipient: `@${eg.otherUser.full_name}` },
+    });
   });
 
   test('returns "Jot down something" object for self narrow', () => {
-    const narrow = deepFreeze(privateNarrow('abc@zulip.com'));
-
-    const ownEmail = 'abc@zulip.com';
-
-    const placeholder = getComposeInputPlaceholder(narrow, ownEmail);
+    const narrow = deepFreeze(pm1to1NarrowFromUser(eg.selfUser));
+    const placeholder = getComposeInputPlaceholder(narrow, ownUserId, usersById);
     expect(placeholder).toEqual({ text: 'Jot down something' });
   });
 
   test('returns "Message #streamName" for stream narrow', () => {
     const narrow = deepFreeze(streamNarrow('Denmark'));
-
-    const placeholder = getComposeInputPlaceholder(narrow);
+    const placeholder = getComposeInputPlaceholder(narrow, ownUserId, usersById);
     expect(placeholder).toEqual({ text: 'Message {recipient}', values: { recipient: '#Denmark' } });
   });
 
   test('returns properly for topic narrow', () => {
     const narrow = deepFreeze(topicNarrow('Denmark', 'Copenhagen'));
-
-    const placeholder = getComposeInputPlaceholder(narrow);
-    expect(placeholder).toEqual({
-      text: 'Reply',
-    });
+    const placeholder = getComposeInputPlaceholder(narrow, ownUserId, usersById);
+    expect(placeholder).toEqual({ text: 'Reply' });
   });
 
   test('returns "Message group" object for group narrow', () => {
-    const narrow = deepFreeze(groupNarrow(['abc@zulip.com, xyz@zulip.com']));
-
-    const placeholder = getComposeInputPlaceholder(narrow);
+    const narrow = deepFreeze(pmNarrowFromUsersUnsafe([eg.otherUser, eg.thirdUser]));
+    const placeholder = getComposeInputPlaceholder(narrow, ownUserId, usersById);
     expect(placeholder).toEqual({ text: 'Message group' });
   });
 });

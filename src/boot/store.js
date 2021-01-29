@@ -4,20 +4,33 @@ import type { Store } from 'redux';
 import thunkMiddleware from 'redux-thunk';
 import { createLogger } from 'redux-logger';
 import createActionBuffer from 'redux-action-buffer';
-import { createReactNavigationReduxMiddleware } from 'react-navigation-redux-helpers';
 import Immutable from 'immutable';
-import * as Serialize from 'remotedev-serialize';
 import { persistStore, autoRehydrate } from '../third/redux-persist';
 import type { Config } from '../third/redux-persist';
 
 import { ZulipVersion } from '../utils/zulipVersion';
+import { stringify, parse } from './replaceRevive';
 import type { Action, GlobalState } from '../types';
 import config from '../config';
 import { REHYDRATE } from '../actionConstants';
 import rootReducer from './reducers';
 import ZulipAsyncStorage from './ZulipAsyncStorage';
 import createMigration from '../redux-persist-migrate/index';
-import { getNav } from '../nav/navSelectors';
+import { provideLoggingContext } from './loggingContext';
+import { tryGetActiveAccount } from '../account/accountsSelectors';
+import { objectFromEntries } from '../jsBackport';
+
+if (process.env.NODE_ENV === 'development') {
+  // Chrome dev tools for Immutable.
+  //
+  // To enable, press F1 from the Chrome dev tools to open the
+  // settings. In the "Console" section, check "Enable custom
+  // formatters".
+  //
+  // eslint-disable-next-line import/no-extraneous-dependencies, global-require
+  const installDevTools = require('immutable-devtools');
+  installDevTools(Immutable);
+}
 
 // AsyncStorage.clear(); // use to reset storage during development
 
@@ -30,7 +43,7 @@ import { getNav } from '../nav/navSelectors';
 // prettier-ignore
 export const discardKeys: Array<$Keys<GlobalState>> = [
   'alertWords', 'caughtUp', 'fetching',
-  'nav', 'presence', 'session', 'topics', 'typing', 'userStatus',
+  'presence', 'session', 'topics', 'typing', 'userStatus',
 ];
 
 /**
@@ -54,7 +67,7 @@ export const storeKeys: Array<$Keys<GlobalState>> = [
  */
 // prettier-ignore
 export const cacheKeys: Array<$Keys<GlobalState>> = [
-  'flags', 'messages', 'mute', 'narrows', 'realm', 'streams',
+  'flags', 'messages', 'mute', 'narrows', 'pmConversations', 'realm', 'streams',
   'subscriptions', 'unread', 'userGroups', 'users',
 ];
 
@@ -79,7 +92,8 @@ export const cacheKeys: Array<$Keys<GlobalState>> = [
 function dropCache(state: GlobalState): $Shape<GlobalState> {
   const result: $Shape<GlobalState> = {};
   storeKeys.forEach(key => {
-    // $FlowFixMe This is well-typed only because it's the same `key` twice.
+    /* $FlowFixMe[incompatible-type]: This is well-typed only because
+       it's the same `key` twice. */
     result[key] = state[key];
   });
   return result;
@@ -157,7 +171,7 @@ const migrations: { [string]: (GlobalState) => GlobalState } = {
     accounts: state.accounts.map(a => ({
       ...a,
       // `a.realm` is a string until migration 15
-      // $FlowMigrationFudge
+      // $FlowMigrationFudge[prop-missing]
       realm: a.realm.replace(/\/+$/, ''),
     })),
   }),
@@ -194,10 +208,50 @@ const migrations: { [string]: (GlobalState) => GlobalState } = {
     ...state,
     accounts: state.accounts.map(a => ({
       ...a,
-      // $FlowMigrationFudge - `a.realm` will be a string here
+      /* $FlowMigrationFudge[incompatible-call]: `a.realm` will be a
+         string here */
       realm: new URL(a.realm),
     })),
   }),
+
+  // Convert `narrows` from object-as-map to `Immutable.Map`.
+  '16': state => ({
+    ...state,
+    narrows: Immutable.Map(state.narrows),
+  }),
+
+  // Convert messages[].avatar_url from `string | null` to `AvatarURL`.
+  '17': dropCache,
+
+  // Convert `UserOrBot.avatar_url` from raw server data to
+  // `AvatarURL`.
+  '18': dropCache,
+
+  // Change format of keys representing narrows: from JSON to our format,
+  // then for PM narrows adding user IDs.
+  '21': state => ({
+    ...dropCache(state),
+    // The old format was a rather hairy format that we don't want to
+    // permanently keep around the code to parse.  For PMs, there's an
+    // extra wrinkle in that any conversion would require using additional
+    // information to look up the IDs.  Drafts are inherently short-term,
+    // and are already discarded whenever switching between accounts;
+    // so we just drop them here.
+    drafts: {},
+  }),
+
+  // Change format of keys representing PM narrows, dropping emails.
+  '22': state => ({
+    ...dropCache(state),
+    drafts: objectFromEntries(
+      Object.keys(state.drafts)
+        .map(key => key.replace(/^pm:d:(.*?):.*/s, 'pm:$1'))
+        .map(key => [key, state.drafts[key]]),
+    ),
+  }),
+
+  // Convert `messages` from object-as-map to `Immutable.Map`.
+  '23': dropCache,
 
   // TIP: When adding a migration, consider just using `dropCache`.
 };
@@ -210,10 +264,6 @@ const migrations: { [string]: (GlobalState) => GlobalState } = {
  */
 function listMiddleware() {
   const result = [
-    // Allow us to cause navigation by dispatching Redux actions.
-    // See docs: https://github.com/react-navigation/redux-helpers
-    createReactNavigationReduxMiddleware(getNav, 'root'),
-
     // Delay ("buffer") actions until a REHYDRATE action comes through.
     // After dispatching the latter, this will go back and dispatch
     // all the buffered actions.  See docs:
@@ -238,6 +288,8 @@ function listMiddleware() {
         // Example options to add for more focused information, depending on
         // what you're investigating; see docs/howto/debugging.md (link above).
         //   diff: true,
+        //   collapsed: true,
+        //   collapsed: (getState, action) => action.type !== 'MESSAGE_FETCH_COMPLETE',
         //   predicate: (getState, action) => action.type === 'MESSAGE_FETCH_COMPLETE',
       }),
     );
@@ -272,39 +324,9 @@ const store: Store<GlobalState, Action> = createStore(
   ),
 );
 
-/**
- * A special identifier used by `remotedev-serialize`.
- *
- * Use this in the custom replacer and reviver, below, to make it
- * easier to be consistent between them and avoid costly typos.
- */
-const SERIALIZED_TYPE_FIELD_NAME: '__serializedType__' = '__serializedType__';
-
-const customReplacer = (key, value, defaultReplacer) => {
-  if (value instanceof ZulipVersion) {
-    return { data: value.raw(), [SERIALIZED_TYPE_FIELD_NAME]: 'ZulipVersion' };
-  } else if (value instanceof URL) {
-    return { data: value.toString(), [SERIALIZED_TYPE_FIELD_NAME]: 'URL' };
-  }
-  return defaultReplacer(key, value);
-};
-
-const customReviver = (key, value, defaultReviver) => {
-  if (value !== null && typeof value === 'object' && SERIALIZED_TYPE_FIELD_NAME in value) {
-    const data = value.data;
-    switch (value[SERIALIZED_TYPE_FIELD_NAME]) {
-      case 'ZulipVersion':
-        return new ZulipVersion(data);
-      case 'URL':
-        return new URL(data);
-      default:
-      // Fall back to defaultReviver, below
-    }
-  }
-  return defaultReviver(key, value);
-};
-
-const { stringify, parse } = Serialize.immutable(Immutable, null, customReplacer, customReviver);
+provideLoggingContext(() => ({
+  serverVersion: tryGetActiveAccount(store.getState())?.zulipVersion ?? null,
+}));
 
 /**
  * The config options to pass to redux-persist.
@@ -323,7 +345,8 @@ const reduxPersistConfig: Config = {
 
   // Store data through our own wrapper for AsyncStorage, in particular
   // to get compression.
-  // $FlowFixMe: https://github.com/rt2zz/redux-persist/issues/823
+  /* $FlowFixMe[incompatible-variance]:
+     https://github.com/rt2zz/redux-persist/issues/823 */
   storage: ZulipAsyncStorage,
   serialize: stringify,
   deserialize: parse,

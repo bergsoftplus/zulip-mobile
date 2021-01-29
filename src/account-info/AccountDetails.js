@@ -6,10 +6,9 @@ import type { UserOrBot, Dispatch } from '../types';
 import styles, { createStyleSheet } from '../styles';
 import { connect } from '../react-redux';
 import { UserAvatar, ComponentList, RawLabel } from '../common';
-import { getCurrentRealm, getUserStatusTextForUser } from '../selectors';
+import { getUserStatusTextForUser } from '../selectors';
 import PresenceStatusIndicator from '../common/PresenceStatusIndicator';
 import ActivityText from '../title/ActivityText';
-import { getAvatarFromUser } from '../utils/avatar';
 import { nowInTimeZone } from '../utils/date';
 
 const componentStyles = createStyleSheet({
@@ -20,15 +19,17 @@ const componentStyles = createStyleSheet({
     justifyContent: 'center',
     flexDirection: 'row',
   },
+  presenceStatusIndicator: {
+    position: 'relative',
+    top: 2,
+    marginRight: 5,
+  },
   statusText: {
     textAlign: 'center',
   },
 });
 
-const AVATAR_SIZE = 200;
-
 type SelectorProps = {|
-  realm: URL,
   userStatusText: string | void,
 |};
 
@@ -41,7 +42,7 @@ type Props = $ReadOnly<{|
 
 class AccountDetails extends PureComponent<Props> {
   render() {
-    const { realm, user, userStatusText } = this.props;
+    const { user, userStatusText } = this.props;
 
     let localTime: string | null = null;
     // See comments at CrossRealmBot and User at src/api/modelTypes.js.
@@ -57,11 +58,16 @@ class AccountDetails extends PureComponent<Props> {
     return (
       <ComponentList outerSpacing itemStyle={componentStyles.componentListItem}>
         <View>
-          <UserAvatar avatarUrl={getAvatarFromUser(user, realm, AVATAR_SIZE)} size={AVATAR_SIZE} />
+          <UserAvatar avatarUrl={user.avatar_url} size={200} />
         </View>
         <View style={componentStyles.statusWrapper}>
+          <PresenceStatusIndicator
+            style={componentStyles.presenceStatusIndicator}
+            email={user.email}
+            hideIfOffline={false}
+            useOpaqueBackground={false}
+          />
           <RawLabel style={[styles.largerText, styles.halfMarginRight]} text={user.full_name} />
-          <PresenceStatusIndicator email={user.email} hideIfOffline={false} />
         </View>
         {userStatusText !== undefined && (
           <RawLabel style={[styles.largerText, componentStyles.statusText]} text={userStatusText} />
@@ -80,6 +86,5 @@ class AccountDetails extends PureComponent<Props> {
 }
 
 export default connect<SelectorProps, _, _>((state, props) => ({
-  realm: getCurrentRealm(state),
   userStatusText: getUserStatusTextForUser(state, props.user.user_id),
 }))(AccountDetails);

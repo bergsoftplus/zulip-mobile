@@ -1,5 +1,8 @@
 /* @flow strict-local */
+import invariant from 'invariant';
 import { Clipboard, Share, Alert } from 'react-native';
+
+import * as NavigationService from '../nav/NavigationService';
 import type {
   Auth,
   Dispatch,
@@ -13,8 +16,8 @@ import type {
 } from '../types';
 import type { BackgroundData } from '../webview/MessageList';
 import {
-  getNarrowFromMessage,
-  isPrivateOrGroupNarrow,
+  getNarrowForReply,
+  isPmNarrow,
   isStreamOrTopicNarrow,
   isTopicNarrow,
 } from '../utils/narrow';
@@ -23,7 +26,7 @@ import * as api from '../api';
 import { showToast } from '../utils/info';
 import { doNarrow, deleteOutboxMessage, navigateToEmojiPicker } from '../actions';
 import { navigateToMessageReactionScreen } from '../nav/navActions';
-import { pmUiRecipientsFromMessage } from '../utils/recipient';
+import { pmUiRecipientsFromMessage, streamNameOfStreamMessage } from '../utils/recipient';
 import { deleteMessagesForTopic } from '../topics/topicActions';
 import * as logging from '../utils/logging';
 
@@ -38,7 +41,7 @@ type ButtonDescription = {
   /** The callback. */
   ({
     auth: Auth,
-    ownEmail: string,
+    ownUser: User,
     message: Message | Outbox,
     subscriptions: Subscription[],
     dispatch: Dispatch,
@@ -57,8 +60,8 @@ type ButtonDescription = {
 // Options for the action sheet go below: ...
 //
 
-const reply = ({ message, dispatch, ownEmail }) => {
-  dispatch(doNarrow(getNarrowFromMessage(message, ownEmail), message.id));
+const reply = ({ message, dispatch, ownUser }) => {
+  dispatch(doNarrow(getNarrowForReply(message, ownUser.user_id), message.id));
 };
 reply.title = 'Reply';
 reply.errorMessage = 'Failed to reply';
@@ -100,19 +103,22 @@ deleteMessage.title = 'Delete message';
 deleteMessage.errorMessage = 'Failed to delete message';
 
 const unmuteTopic = async ({ auth, message }) => {
-  await api.unmuteTopic(auth, message.display_recipient, message.subject);
+  invariant(message.type === 'stream', 'unmuteTopic: got PM');
+  await api.unmuteTopic(auth, streamNameOfStreamMessage(message), message.subject);
 };
 unmuteTopic.title = 'Unmute topic';
 unmuteTopic.errorMessage = 'Failed to unmute topic';
 
 const muteTopic = async ({ auth, message }) => {
-  await api.muteTopic(auth, message.display_recipient, message.subject);
+  invariant(message.type === 'stream', 'muteTopic: got PM');
+  await api.muteTopic(auth, streamNameOfStreamMessage(message), message.subject);
 };
 muteTopic.title = 'Mute topic';
 muteTopic.errorMessage = 'Failed to mute topic';
 
-const deleteTopic = async ({ auth, message, dispatch, ownEmail, _ }) => {
-  const alertTitle = _("Are you sure you want to delete the topic '{topic}'?", {
+const deleteTopic = async ({ auth, message, dispatch, _ }) => {
+  invariant(message.type === 'stream', 'deleteTopic: got PM');
+  const alertTitle = _('Are you sure you want to delete the topic “{topic}”?', {
     topic: message.subject,
   });
   const AsyncAlert = async (): Promise<boolean> =>
@@ -140,14 +146,15 @@ const deleteTopic = async ({ auth, message, dispatch, ownEmail, _ }) => {
       );
     });
   if (await AsyncAlert()) {
-    await dispatch(deleteMessagesForTopic(message.display_recipient, message.subject));
+    await dispatch(deleteMessagesForTopic(streamNameOfStreamMessage(message), message.subject));
   }
 };
 deleteTopic.title = 'Delete topic';
 deleteTopic.errorMessage = 'Failed to delete topic';
 
 const unmuteStream = async ({ auth, message, subscriptions }) => {
-  const sub = subscriptions.find(x => x.name === message.display_recipient);
+  invariant(message.type === 'stream', 'unmuteStream: got PM');
+  const sub = subscriptions.find(x => x.name === streamNameOfStreamMessage(message));
   if (sub) {
     await api.toggleMuteStream(auth, sub.stream_id, false);
   }
@@ -156,7 +163,8 @@ unmuteStream.title = 'Unmute stream';
 unmuteStream.errorMessage = 'Failed to unmute stream';
 
 const muteStream = async ({ auth, message, subscriptions }) => {
-  const sub = subscriptions.find(x => x.name === message.display_recipient);
+  invariant(message.type === 'stream', 'muteStream: got PM');
+  const sub = subscriptions.find(x => x.name === streamNameOfStreamMessage(message));
   if (sub) {
     await api.toggleMuteStream(auth, sub.stream_id, true);
   }
@@ -185,13 +193,13 @@ shareMessage.title = 'Share';
 shareMessage.errorMessage = 'Failed to share message';
 
 const addReaction = ({ message, dispatch }) => {
-  dispatch(navigateToEmojiPicker(message.id));
+  NavigationService.dispatch(navigateToEmojiPicker(message.id));
 };
 addReaction.title = 'Add a reaction';
 addReaction.errorMessage = 'Failed to add reaction';
 
 const showReactions = ({ message, dispatch }) => {
-  dispatch(navigateToMessageReactionScreen(message.id));
+  NavigationService.dispatch(navigateToMessageReactionScreen(message.id));
 };
 showReactions.title = 'See who reacted';
 showReactions.errorMessage = 'Failed to show reactions';
@@ -246,12 +254,13 @@ export const constructHeaderActionButtons = ({
     if (ownUser.is_admin) {
       buttons.push('deleteTopic');
     }
-    if (isTopicMuted(message.display_recipient, message.subject, mute)) {
+    const streamName = streamNameOfStreamMessage(message);
+    if (isTopicMuted(streamName, message.subject, mute)) {
       buttons.push('unmuteTopic');
     } else {
       buttons.push('muteTopic');
     }
-    const sub = subscriptions.find(x => x.name === message.display_recipient);
+    const sub = subscriptions.find(x => x.name === streamName);
     if (sub && !sub.in_home_view) {
       buttons.push('unmuteStream');
     } else {
@@ -290,7 +299,7 @@ export const constructMessageActionButtons = ({
   if (message.reactions.length > 0) {
     buttons.push('showReactions');
   }
-  if (!isTopicNarrow(narrow) && !isPrivateOrGroupNarrow(narrow)) {
+  if (!isTopicNarrow(narrow) && !isPmNarrow(narrow)) {
     buttons.push('reply');
   }
   if (messageNotDeleted(message)) {
@@ -298,13 +307,13 @@ export const constructMessageActionButtons = ({
     buttons.push('shareMessage');
   }
   if (
-    message.sender_email === ownUser.email
+    message.sender_id === ownUser.user_id
     // Our "edit message" UI only works in certain kinds of narrows.
-    && (isStreamOrTopicNarrow(narrow) || isPrivateOrGroupNarrow(narrow))
+    && (isStreamOrTopicNarrow(narrow) || isPmNarrow(narrow))
   ) {
     buttons.push('editMessage');
   }
-  if (message.sender_email === ownUser.email && messageNotDeleted(message)) {
+  if (message.sender_id === ownUser.user_id && messageNotDeleted(message)) {
     buttons.push('deleteMessage');
   }
   if (message.id in flags.starred) {
@@ -331,13 +340,13 @@ export const constructNonHeaderActionButtons = ({
 /** Returns the title for the action sheet. */
 const getActionSheetTitle = (message: Message | Outbox, ownUser: User): string => {
   if (message.type === 'private') {
-    const recipients = pmUiRecipientsFromMessage(message, ownUser);
+    const recipients = pmUiRecipientsFromMessage(message, ownUser.user_id);
     return recipients
       .map(r => r.full_name)
       .sort()
       .join(', ');
   } else {
-    return `#${message.display_recipient} > ${message.subject}`;
+    return `#${streamNameOfStreamMessage(message)} > ${message.subject}`;
   }
 };
 
@@ -362,7 +371,7 @@ export const showActionSheet = (
         await pressedButton({
           subscriptions: params.backgroundData.subscriptions,
           auth: params.backgroundData.auth,
-          ownEmail: params.backgroundData.ownUser.email,
+          ownUser: params.backgroundData.ownUser,
           ...params,
           ...callbacks,
         });

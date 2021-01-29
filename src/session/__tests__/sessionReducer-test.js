@@ -4,10 +4,8 @@ import deepFreeze from 'deep-freeze';
 import {
   DEAD_QUEUE,
   LOGOUT,
-  DO_NARROW,
   APP_ONLINE,
   INITIAL_FETCH_COMPLETE,
-  INIT_SAFE_AREA_INSETS,
   APP_ORIENTATION,
   GOT_PUSH_TOKEN,
   TOGGLE_OUTBOX_SENDING,
@@ -16,7 +14,6 @@ import {
 } from '../../actionConstants';
 import sessionReducer from '../sessionReducer';
 import * as eg from '../../__tests__/lib/exampleData';
-import { privateNarrow } from '../../utils/narrow';
 
 describe('sessionReducer', () => {
   const baseState = eg.baseReduxState.session;
@@ -24,14 +21,12 @@ describe('sessionReducer', () => {
   test('ACCOUNT_SWITCH', () => {
     const state = deepFreeze({
       ...baseState,
-      lastNarrow: [],
       needsInitialFetch: false,
       loading: true,
     });
     const newState = sessionReducer(state, eg.action.account_switch);
     expect(newState).toEqual({
       ...baseState,
-      lastNarrow: null,
       needsInitialFetch: true,
       loading: false,
     });
@@ -51,14 +46,12 @@ describe('sessionReducer', () => {
   test('LOGOUT', () => {
     const state = deepFreeze({
       ...baseState,
-      lastNarrow: [],
       needsInitialFetch: true,
       loading: true,
     });
     const newState = sessionReducer(state, deepFreeze({ type: LOGOUT }));
     expect(newState).toEqual({
       ...baseState,
-      lastNarrow: null,
       needsInitialFetch: false,
       loading: false,
     });
@@ -71,13 +64,6 @@ describe('sessionReducer', () => {
     });
     const newState = sessionReducer(baseState, action);
     expect(newState).toEqual({ ...baseState, eventQueueId: 100 });
-  });
-
-  test('DO_NARROW', () => {
-    const state = deepFreeze({ ...baseState, lastNarrow: [] });
-    const action = deepFreeze({ type: DO_NARROW, narrow: privateNarrow('a@a.com') });
-    const newState = sessionReducer(state, action);
-    expect(newState).toEqual({ ...baseState, lastNarrow: privateNarrow('a@a.com') });
   });
 
   test('APP_ONLINE', () => {
@@ -97,12 +83,6 @@ describe('sessionReducer', () => {
     const state = deepFreeze({ ...baseState, loading: false });
     const newState = sessionReducer(state, deepFreeze({ type: INITIAL_FETCH_START }));
     expect(newState).toEqual({ ...baseState, loading: true });
-  });
-
-  test('INIT_SAFE_AREA_INSETS', () => {
-    const safeAreaInsets = { top: 1, bottom: 2, right: 3, left: 0 };
-    const action = deepFreeze({ type: INIT_SAFE_AREA_INSETS, safeAreaInsets });
-    expect(sessionReducer(baseState, action)).toEqual({ ...baseState, safeAreaInsets });
   });
 
   test('APP_ORIENTATION', () => {

@@ -3,6 +3,8 @@
 import React, { PureComponent } from 'react';
 import { ActivityIndicator, View, FlatList } from 'react-native';
 
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
 import type { Auth, DevUser, Dispatch } from '../types';
 import styles, { createStyleSheet } from '../styles';
 import { connect } from '../react-redux';
@@ -27,6 +29,9 @@ const componentStyles = createStyleSheet({
 });
 
 type Props = $ReadOnly<{|
+  navigation: AppNavigationProp<'dev-auth'>,
+  route: RouteProp<'dev-auth', void>,
+
   partialAuth: Auth,
   dispatch: Dispatch,
 |}>;

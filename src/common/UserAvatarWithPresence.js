@@ -1,14 +1,13 @@
 /* @flow strict-local */
-
 import React, { PureComponent } from 'react';
 
-import type { Dispatch } from '../types';
+import type { UserId } from '../types';
 import { createStyleSheet } from '../styles';
-import { connect } from '../react-redux';
-import { getCurrentRealm } from '../selectors';
 import UserAvatar from './UserAvatar';
-import { getAvatarUrl } from '../utils/avatar';
 import PresenceStatusIndicator from './PresenceStatusIndicator';
+import { AvatarURL } from '../utils/avatar';
+import { tryGetUserForId } from '../users/userSelectors';
+import { useSelector } from '../react-redux';
 
 const styles = createStyleSheet({
   status: {
@@ -19,45 +18,66 @@ const styles = createStyleSheet({
 });
 
 type Props = $ReadOnly<{|
-  dispatch: Dispatch,
-  avatarUrl: ?string,
-  email: string,
+  avatarUrl: AvatarURL,
   size: number,
-  realm: URL,
-  shape: 'rounded' | 'square',
   onPress?: () => void,
+  email: string,
 |}>;
 
 /**
- * Renders a user avatar with a PresenceStatusIndicator in the corner
+ * A user avatar with a PresenceStatusIndicator in the corner.
  *
- * @prop [avatarUrl] - Absolute or relative url to an avatar image.
- * @prop [email] - User's' email address, to calculate Gravatar URL if not given `avatarUrl`.
- * @prop [size] - Sets width and height in pixels.
- * @prop [realm] - Current realm url, used if avatarUrl is relative.
- * @prop [shape] - 'rounded' (default) means a square with rounded corners.
+ * Prefer `UserAvatarWithPresenceById` over this component: it does the same
+ * thing but avoids an email in the component's interface.  Once all callers
+ * have migrated to that version, it'll replace this one.
+ *
+ * @prop [avatarUrl]
+ * @prop [email] - Sender's / user's email address, for the presence dot.
+ * @prop [size] - Sets width and height in logical pixels.
  * @prop [onPress] - Event fired on pressing the component.
  */
-class UserAvatarWithPresence extends PureComponent<Props> {
-  static defaultProps = {
-    avatarUrl: '',
-    email: '',
-    size: 32,
-    shape: 'rounded',
-  };
-
+export default class UserAvatarWithPresence extends PureComponent<Props> {
   render() {
-    const { avatarUrl, email, size, onPress, realm, shape } = this.props;
-    const fullAvatarUrl = getAvatarUrl(avatarUrl, email, realm);
+    const { avatarUrl, email, size, onPress } = this.props;
 
     return (
-      <UserAvatar avatarUrl={fullAvatarUrl} size={size} onPress={onPress} shape={shape}>
-        <PresenceStatusIndicator style={styles.status} email={email} hideIfOffline />
+      <UserAvatar avatarUrl={avatarUrl} size={size} onPress={onPress}>
+        <PresenceStatusIndicator
+          style={styles.status}
+          email={email}
+          hideIfOffline
+          useOpaqueBackground
+        />
       </UserAvatar>
     );
   }
 }
 
-export default connect(state => ({
-  realm: getCurrentRealm(state),
-}))(UserAvatarWithPresence);
+/**
+ * A user avatar with a PresenceStatusIndicator in the corner.
+ *
+ * Use this in preference to the default export `UserAvatarWithPresence`.
+ * We're migrating from that one to this in order to avoid using emails.
+ *
+ * @prop [userId]
+ * @prop [size]
+ * @prop [onPress]
+ */
+export function UserAvatarWithPresenceById(
+  props: $ReadOnly<{|
+    ...$Diff<Props, {| avatarUrl: mixed, email: mixed |}>,
+    userId: UserId,
+  |}>,
+) {
+  const { userId, ...restProps } = props;
+
+  const user = useSelector(state => tryGetUserForId(state, userId));
+  if (!user) {
+    // This condition really does happen, because UserItem can be passed a fake
+    // pseudo-user by PeopleAutocomplete, to represent `@all` or `@everyone`.
+    // TODO eliminate that, and use plain `getUserForId` here.
+    return null;
+  }
+
+  return <UserAvatarWithPresence {...restProps} avatarUrl={user.avatar_url} email={user.email} />;
+}

@@ -2,6 +2,8 @@
 
 import React, { PureComponent } from 'react';
 
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
 import type { Auth, Dispatch } from '../types';
 import { connect } from '../react-redux';
 import { getAuth, getSettings } from '../selectors';
@@ -10,6 +12,9 @@ import * as api from '../api';
 import { settingsChange } from '../actions';
 
 type Props = $ReadOnly<{|
+  navigation: AppNavigationProp<'notifications'>,
+  route: RouteProp<'notifications', void>,
+
   auth: Auth,
   dispatch: Dispatch,
   offlineNotification: boolean,

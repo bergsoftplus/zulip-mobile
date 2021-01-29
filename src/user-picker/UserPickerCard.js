@@ -2,8 +2,9 @@
 import React, { PureComponent } from 'react';
 import { View } from 'react-native';
 import type { FlatList } from 'react-native';
+import { createSelector } from 'reselect';
 
-import type { User, PresenceState, Dispatch } from '../types';
+import type { User, UserId, UserOrBot, PresenceState, Selector, Dispatch } from '../types';
 import { createStyleSheet } from '../styles';
 import { connect } from '../react-redux';
 import { FloatingActionButton, LineSeparator } from '../common';
@@ -11,7 +12,8 @@ import { IconDone } from '../common/Icons';
 import UserList from '../users/UserList';
 import AvatarList from './AvatarList';
 import AnimatedScaleComponent from '../animation/AnimatedScaleComponent';
-import { getPresence, getUsersSansMe, getUsersByEmail } from '../selectors';
+import { getUsers, getPresence } from '../selectors';
+import { getOwnUserId } from '../users/userSelectors';
 
 const styles = createStyleSheet({
   wrapper: {
@@ -27,14 +29,13 @@ const styles = createStyleSheet({
 type Props = $ReadOnly<{|
   dispatch: Dispatch,
   users: User[],
-  usersByEmail: Map<string, User>,
   presences: PresenceState,
   filter: string,
-  onComplete: (selected: User[]) => void,
+  onComplete: (selected: UserOrBot[]) => void,
 |}>;
 
 type State = {|
-  selected: User[],
+  selected: UserOrBot[],
 |};
 
 class UserPickerCard extends PureComponent<Props, State> {
@@ -42,36 +43,23 @@ class UserPickerCard extends PureComponent<Props, State> {
     selected: [],
   };
 
-  listRef: ?FlatList<User>;
+  listRef: ?FlatList<UserOrBot>;
 
-  handleUserSelect = (email: string) => {
-    const { usersByEmail } = this.props;
-    const { selected } = this.state;
-
-    const user = usersByEmail.get(email);
-    if (user) {
-      this.setState({
-        selected: [...selected, user],
-      });
-    }
-  };
-
-  handleUserPress = (email: string) => {
-    const { selected } = this.state;
-
-    if (selected.find(x => x.email === email)) {
-      this.handleUserDeselect(email);
-    } else {
-      this.handleUserSelect(email);
-    }
-  };
-
-  handleUserDeselect = (email: string) => {
-    const { selected } = this.state;
-
-    this.setState({
-      selected: selected.filter(x => x.email !== email),
+  handleUserPress = (user: UserOrBot) => {
+    this.setState(state => {
+      const { selected } = state;
+      if (selected.find(x => x.user_id === user.user_id)) {
+        return { selected: selected.filter(x => x.user_id !== user.user_id) };
+      } else {
+        return { selected: [...selected, user] };
+      }
     });
+  };
+
+  handleUserDeselect = (userId: UserId) => {
+    this.setState(state => ({
+      selected: state.selected.filter(x => x.user_id !== userId),
+    }));
   };
 
   handleComplete = () => {
@@ -122,8 +110,15 @@ class UserPickerCard extends PureComponent<Props, State> {
   }
 }
 
+// The users we want to show in this particular UI.
+// We exclude (a) users with `is_active` false; (b) cross-realm bots; (c) self.
+const getUsersToShow: Selector<User[]> = createSelector(
+  getUsers,
+  getOwnUserId,
+  (users, ownUserId) => users.filter(user => user.user_id !== ownUserId),
+);
+
 export default connect(state => ({
-  users: getUsersSansMe(state),
-  usersByEmail: getUsersByEmail(state),
+  users: getUsersToShow(state),
   presences: getPresence(state),
 }))(UserPickerCard);

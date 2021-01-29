@@ -2,13 +2,13 @@
 import React, { PureComponent } from 'react';
 import { FlatList } from 'react-native';
 
-import type { User } from '../types';
+import type { UserId, UserOrBot } from '../types';
 import AvatarItem from './AvatarItem';
 
 type Props = $ReadOnly<{|
-  users: User[],
-  listRef: (component: FlatList<User> | null) => void,
-  onPress: (email: string) => void,
+  users: UserOrBot[],
+  listRef: (component: FlatList<UserOrBot> | null) => void,
+  onPress: UserId => void,
 |}>;
 
 export default class AvatarList extends PureComponent<Props> {
@@ -21,20 +21,13 @@ export default class AvatarList extends PureComponent<Props> {
         showsHorizontalScrollIndicator={false}
         initialNumToRender={20}
         data={users}
-        ref={(component: FlatList<User> | null) => {
+        ref={(component: FlatList<UserOrBot> | null) => {
           if (listRef) {
             listRef(component);
           }
         }}
-        keyExtractor={item => item.email}
-        renderItem={({ item }) => (
-          <AvatarItem
-            email={item.email}
-            avatarUrl={item.avatar_url}
-            fullName={item.full_name}
-            onPress={onPress}
-          />
-        )}
+        keyExtractor={user => String(user.user_id)}
+        renderItem={({ item: user }) => <AvatarItem user={user} onPress={onPress} />}
       />
     );
   }

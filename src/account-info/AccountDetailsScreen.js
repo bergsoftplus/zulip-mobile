@@ -1,13 +1,14 @@
 /* @flow strict-local */
 import React, { PureComponent } from 'react';
 
-import type { NavigationScreenProp } from 'react-navigation';
-import type { Dispatch, UserOrBot } from '../types';
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
+import type { Dispatch, UserOrBot, UserId } from '../types';
 import { createStyleSheet } from '../styles';
 import { connect } from '../react-redux';
 import { Screen, ZulipButton, Label } from '../common';
 import { IconPrivateChat } from '../common/Icons';
-import { privateNarrow } from '../utils/narrow';
+import { pm1to1NarrowFromUser } from '../utils/narrow';
 import AccountDetails from './AccountDetails';
 import { doNarrow } from '../actions';
 import { getUserIsActive, getUserForId } from '../users/userSelectors';
@@ -30,7 +31,8 @@ type SelectorProps = $ReadOnly<{|
 |}>;
 
 type Props = $ReadOnly<{|
-  navigation: NavigationScreenProp<{ params: {| userId: number |} }>,
+  navigation: AppNavigationProp<'account-details'>,
+  route: RouteProp<'account-details', {| userId: UserId |}>,
 
   dispatch: Dispatch,
   ...SelectorProps,
@@ -39,7 +41,7 @@ type Props = $ReadOnly<{|
 class AccountDetailsScreen extends PureComponent<Props> {
   handleChatPress = () => {
     const { user, dispatch } = this.props;
-    dispatch(doNarrow(privateNarrow(user.email)));
+    dispatch(doNarrow(pm1to1NarrowFromUser(user)));
   };
 
   render() {
@@ -70,6 +72,6 @@ class AccountDetailsScreen extends PureComponent<Props> {
 }
 
 export default connect<SelectorProps, _, _>((state, props) => ({
-  user: getUserForId(state, props.navigation.state.params.userId),
-  isActive: getUserIsActive(state, props.navigation.state.params.userId),
+  user: getUserForId(state, props.route.params.userId),
+  isActive: getUserIsActive(state, props.route.params.userId),
 }))(AccountDetailsScreen);

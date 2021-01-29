@@ -1,5 +1,6 @@
 /* @flow strict-local */
 import union from 'lodash.union';
+import Immutable from 'immutable';
 
 import type { NarrowsState, Action } from '../types';
 import { ensureUnreachable } from '../types';
@@ -17,76 +18,114 @@ import {
 } from '../actionConstants';
 import { LAST_MESSAGE_ANCHOR, FIRST_UNREAD_ANCHOR } from '../anchor';
 import {
-  isMessageInNarrow,
+  getNarrowsForMessage,
   MENTIONED_NARROW_STR,
   STARRED_NARROW_STR,
   isSearchNarrow,
+  keyFromNarrow,
 } from '../utils/narrow';
-import { NULL_OBJECT } from '../nullObjects';
 
-const initialState: NarrowsState = NULL_OBJECT;
+const initialState: NarrowsState = Immutable.Map();
 
 const messageFetchComplete = (state, action) => {
   // We don't want to accumulate old searches that we'll never need again.
   if (isSearchNarrow(action.narrow)) {
     return state;
   }
-  const key = JSON.stringify(action.narrow);
+  const key = keyFromNarrow(action.narrow);
   const fetchedMessageIds = action.messages.map(message => message.id);
   const replaceExisting =
     action.anchor === FIRST_UNREAD_ANCHOR || action.anchor === LAST_MESSAGE_ANCHOR;
-  return {
-    ...state,
-    [key]: replaceExisting
+  return state.set(
+    key,
+    replaceExisting
       ? fetchedMessageIds
-      : union(state[key], fetchedMessageIds).sort((a, b) => a - b),
-  };
+      : union(state.get(key), fetchedMessageIds).sort((a, b) => a - b),
+  );
 };
 
 const eventNewMessage = (state, action) => {
-  let stateChange = false;
-  const newState: NarrowsState = {};
-  Object.keys(state).forEach(key => {
-    const isInNarrow = isMessageInNarrow(action.message, JSON.parse(key), action.ownEmail);
-    const isCaughtUp = action.caughtUp[key] && action.caughtUp[key].newer;
-    const messageDoesNotExist = state[key].find(id => action.message.id === id) === undefined;
+  const { message } = action;
+  const { flags } = message;
 
-    if (isInNarrow && isCaughtUp && messageDoesNotExist) {
-      stateChange = true;
-      newState[key] = [...state[key], action.message.id];
-    } else {
-      newState[key] = state[key];
-    }
+  if (!flags) {
+    throw new Error('EVENT_NEW_MESSAGE message missing flags');
+  }
+
+  return state.withMutations(stateMutable => {
+    const narrowsForMessage = getNarrowsForMessage(message, action.ownUserId, flags);
+
+    narrowsForMessage.forEach(narrow => {
+      const key = keyFromNarrow(narrow);
+      const value = stateMutable.get(key);
+
+      if (!value) {
+        // We haven't loaded this narrow. The time to add a new key
+        // isn't now; we do that in MESSAGE_FETCH_COMPLETE, when we
+        // might have a reasonably long, contiguous list of messages
+        // to show.
+        return; // i.e., continue
+      }
+
+      // (No guarantee that `key` is in `action.caughtUp`)
+      // flowlint-next-line unnecessary-optional-chain:off
+      if (!action.caughtUp[key]?.newer) {
+        // Don't add a message to the end of the list unless we know
+        // it's the most recent message, i.e., unless we know we're
+        // currently looking at (caught up with) the newest messages
+        // in the narrow. We don't want to accidentally show a message
+        // at the end of a message list if there might be messages
+        // between the currently latest-shown message and this
+        // message.
+        //
+        // See a corresponding condition in messagesReducer, where we
+        // don't bother to add to `state.messages` if this condition
+        // (after running on all of `narrowsForMessage`) means the new
+        // message wasn't added anywhere in `state.narrows`.
+        return; // i.e., continue
+      }
+
+      if (value.some(id => action.message.id === id)) {
+        // Don't add a message that's already been added. It's probably
+        // very rare for a message to have already been added when we
+        // get an EVENT_NEW_MESSAGE, and perhaps impossible. (TODO:
+        // investigate?)
+        return; // i.e., continue
+      }
+
+      // If changing or removing a case where we ignore a message
+      // here: Careful! Every message in `state.narrows` must exist in
+      // `state.messages`. If we choose to include a message in
+      // `state.narrows`, then messagesReducer MUST ALSO choose to
+      // include it in `state.messages`.
+
+      stateMutable.set(key, [...value, message.id]);
+    });
   });
-  return stateChange ? newState : state;
 };
 
 const eventMessageDelete = (state, action) => {
   let stateChange = false;
-  const newState: NarrowsState = {};
-  Object.keys(state).forEach(key => {
-    newState[key] = state[key].filter(id => !action.messageIds.includes(id));
-    stateChange = stateChange || newState[key].length < state[key].length;
+  const newState = state.map((value, key) => {
+    const result = value.filter(id => !action.messageIds.includes(id));
+    stateChange = stateChange || result.length < value.length;
+    return result;
   });
   return stateChange ? newState : state;
 };
 
 const updateFlagNarrow = (state, narrowStr, operation, messageIds): NarrowsState => {
-  if (!state[narrowStr]) {
+  const value = state.get(narrowStr);
+  if (!value) {
     return state;
   }
   switch (operation) {
-    case 'add':
-      return {
-        ...state,
-        [narrowStr]: [...state[narrowStr], ...messageIds].sort((a, b) => a - b),
-      };
+    case 'add': {
+      return state.set(narrowStr, [...value, ...messageIds].sort((a, b) => a - b));
+    }
     case 'remove': {
       const messageIdSet = new Set(messageIds);
-      return {
-        ...state,
-        [narrowStr]: state[narrowStr].filter(id => !messageIdSet.has(id)),
-      };
+      return state.set(narrowStr, value.filter(id => !messageIdSet.has(id)));
     }
     default:
       ensureUnreachable(operation);

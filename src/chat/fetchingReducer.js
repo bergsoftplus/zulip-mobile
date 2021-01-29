@@ -4,14 +4,13 @@ import {
   LOGOUT,
   LOGIN_SUCCESS,
   ACCOUNT_SWITCH,
-  DO_NARROW,
   MESSAGE_FETCH_START,
   MESSAGE_FETCH_ERROR,
   MESSAGE_FETCH_COMPLETE,
 } from '../actionConstants';
 import { NULL_OBJECT } from '../nullObjects';
 import { DEFAULT_FETCHING } from './fetchingSelectors';
-import { isSearchNarrow } from '../utils/narrow';
+import { isSearchNarrow, keyFromNarrow } from '../utils/narrow';
 
 const initialState: FetchingState = NULL_OBJECT;
 
@@ -22,7 +21,7 @@ const messageFetchStart = (state, action) => {
     return state;
   }
 
-  const key = JSON.stringify(action.narrow);
+  const key = keyFromNarrow(action.narrow);
   const currentValue = state[key] || DEFAULT_FETCHING;
 
   return {
@@ -35,7 +34,7 @@ const messageFetchStart = (state, action) => {
 };
 
 const messageFetchError = (state, action) => {
-  const key = JSON.stringify(action.narrow);
+  const key = keyFromNarrow(action.narrow);
 
   if (isSearchNarrow(action.narrow)) {
     return state;
@@ -52,7 +51,7 @@ const messageFetchComplete = (state, action) => {
   if (isSearchNarrow(action.narrow)) {
     return state;
   }
-  const key = JSON.stringify(action.narrow);
+  const key = keyFromNarrow(action.narrow);
   const currentValue = state[key] || DEFAULT_FETCHING;
 
   return {
@@ -68,7 +67,6 @@ export default (state: FetchingState = initialState, action: Action): FetchingSt
   switch (action.type) {
     case LOGOUT:
     case LOGIN_SUCCESS:
-    case DO_NARROW:
     case ACCOUNT_SWITCH:
       return initialState;
 

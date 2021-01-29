@@ -85,6 +85,10 @@ var compiledWebviewJs = (function (exports) {
     return target;
   }
 
+  var makeUserId = function makeUserId(id) {
+    return id;
+  };
+
   var sendMessage = (function (msg) {
     window.ReactNativeWebView.postMessage(JSON.stringify(msg));
   });
@@ -275,10 +279,78 @@ var compiledWebviewJs = (function (exports) {
     });
   };
 
-  var rewriteHTML = function rewriteHTML(auth) {
+  var rewriteSpoilers = function rewriteSpoilers(element) {
+    var spoilerHeaders = element.querySelectorAll('div.spoiler-header');
+    spoilerHeaders.forEach(function (e) {
+      var toggle_button_html = '<span class="spoiler-button" aria-expanded="false"><span class="spoiler-arrow"></span></span>';
+
+      if (e.innerText === '') {
+        var header_html = '<p>Spoiler</p>';
+        e.innerHTML = toggle_button_html + header_html;
+      } else {
+        e.innerHTML = toggle_button_html + e.innerHTML;
+      }
+    });
+  };
+
+  var rewriteHtml = function rewriteHtml(auth) {
     var element = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : document;
     rewriteImageUrls(auth, element);
     rewriteTime(element);
+    rewriteSpoilers(element);
+  };
+
+  var collapseSpoiler = function collapseSpoiler(spoiler) {
+    var computedHeight = getComputedStyle(spoiler).height;
+    requestAnimationFrame(function () {
+      spoiler.style.height = computedHeight;
+      spoiler.classList.remove('spoiler-content-open');
+      requestAnimationFrame(function () {
+        spoiler.style.height = '0px';
+      });
+    });
+  };
+
+  var expandSpoiler = function expandSpoiler(spoiler) {
+    var spoilerHeight = spoiler.scrollHeight;
+    spoiler.style.height = "".concat(spoilerHeight, "px");
+    spoiler.classList.add('spoiler-content-open');
+
+    var callback = function callback() {
+      spoiler.removeEventListener('transitionend', callback);
+      spoiler.style.height = '';
+    };
+
+    spoiler.addEventListener('transitionend', callback);
+  };
+
+  var toggleSpoiler = function toggleSpoiler(spoilerHeader) {
+    var spoilerBlock = spoilerHeader.parentElement;
+
+    if (!spoilerBlock) {
+      return;
+    }
+
+    var button = spoilerHeader.querySelector('.spoiler-button');
+    var arrow = spoilerBlock.querySelector('.spoiler-arrow');
+    var spoilerContent = spoilerBlock.querySelector('.spoiler-content');
+
+    if (!arrow || !button || !spoilerContent) {
+      console.warn('Malformed spoiler block');
+      return;
+    }
+
+    if (spoilerContent.classList.contains('spoiler-content-open')) {
+      arrow.classList.remove('spoiler-button-open');
+      button.setAttribute('aria-expanded', 'false');
+      spoilerContent.setAttribute('aria-hidden', 'true');
+      collapseSpoiler(spoilerContent);
+    } else {
+      arrow.classList.add('spoiler-button-open');
+      button.setAttribute('aria-expanded', 'true');
+      spoilerContent.setAttribute('aria-hidden', 'false');
+      expandSpoiler(spoilerContent);
+    }
   };
 
   if (!Array.from) {
@@ -545,7 +617,7 @@ var compiledWebviewJs = (function (exports) {
 
   var scrollEventsDisabled = true;
   var hasLongPressed = false;
-  var longPressTimeout;
+  var longPressTimeout = undefined;
   var lastTouchPositionX = -1;
   var lastTouchPositionY = -1;
 
@@ -625,7 +697,18 @@ var compiledWebviewJs = (function (exports) {
     window.scrollBy(0, newBoundRect.top - prevBoundTop);
   };
 
-  var handleUpdateEventContent = function handleUpdateEventContent(uevent) {
+  var runAfterLayout = function runAfterLayout(fn) {
+    if (platformOS === 'android') {
+      fn();
+      return;
+    }
+
+    requestAnimationFrame(function () {
+      fn();
+    });
+  };
+
+  var handleInboundEventContent = function handleInboundEventContent(uevent) {
     var target;
 
     if (uevent.updateStrategy === 'replace') {
@@ -646,20 +729,21 @@ var compiledWebviewJs = (function (exports) {
     }
 
     documentBody.innerHTML = uevent.content;
-    rewriteHTML(uevent.auth);
+    rewriteHtml(uevent.auth);
+    runAfterLayout(function () {
+      if (target.type === 'bottom') {
+        scrollToBottom();
+      } else if (target.type === 'anchor') {
+        scrollToMessage(target.messageId);
+      } else if (target.type === 'preserve') {
+        scrollToPreserve(target.msgId, target.prevBoundTop);
+      }
 
-    if (target.type === 'bottom') {
-      scrollToBottom();
-    } else if (target.type === 'anchor') {
-      scrollToMessage(target.messageId);
-    } else if (target.type === 'preserve') {
-      scrollToPreserve(target.msgId, target.prevBoundTop);
-    }
-
-    sendScrollMessageIfListShort();
+      sendScrollMessageIfListShort();
+    });
   };
 
-  var handleInitialLoad = function handleInitialLoad(platformOS, scrollMessageId, rawAuth) {
+  var handleInitialLoad = function handleInitialLoad(scrollMessageId, rawAuth) {
     var auth = _objectSpread2(_objectSpread2({}, rawAuth), {}, {
       realm: new URL(rawAuth.realm)
     });
@@ -671,35 +755,35 @@ var compiledWebviewJs = (function (exports) {
     }
 
     scrollToMessage(scrollMessageId);
-    rewriteHTML(auth);
+    rewriteHtml(auth);
     sendScrollMessageIfListShort();
     scrollEventsDisabled = false;
   };
 
-  var handleUpdateEventFetching = function handleUpdateEventFetching(uevent) {
+  var handleInboundEventFetching = function handleInboundEventFetching(uevent) {
     showHideElement('message-loading', uevent.showMessagePlaceholders);
     showHideElement('spinner-older', uevent.fetchingOlder);
     showHideElement('spinner-newer', uevent.fetchingNewer);
   };
 
-  var handleUpdateEventTyping = function handleUpdateEventTyping(uevent) {
+  var handleInboundEventTyping = function handleInboundEventTyping(uevent) {
     var elementTyping = document.getElementById('typing');
 
     if (elementTyping) {
       elementTyping.innerHTML = uevent.content;
-      setTimeout(function () {
+      runAfterLayout(function () {
         return scrollToBottomIfNearEnd();
       });
     }
   };
 
-  var handleUpdateEventReady = function handleUpdateEventReady(uevent) {
+  var handleInboundEventReady = function handleInboundEventReady(uevent) {
     sendMessage({
       type: 'ready'
     });
   };
 
-  var handleUpdateEventMessagesRead = function handleUpdateEventMessagesRead(uevent) {
+  var handleInboundEventMessagesRead = function handleInboundEventMessagesRead(uevent) {
     if (uevent.messageIds.length === 0) {
       return;
     }
@@ -713,28 +797,28 @@ var compiledWebviewJs = (function (exports) {
     });
   };
 
-  var eventUpdateHandlers = {
-    content: handleUpdateEventContent,
-    fetching: handleUpdateEventFetching,
-    typing: handleUpdateEventTyping,
-    ready: handleUpdateEventReady,
-    read: handleUpdateEventMessagesRead
+  var inboundEventHandlers = {
+    content: handleInboundEventContent,
+    fetching: handleInboundEventFetching,
+    typing: handleInboundEventTyping,
+    ready: handleInboundEventReady,
+    read: handleInboundEventMessagesRead
   };
 
   var handleMessageEvent = function handleMessageEvent(e) {
     scrollEventsDisabled = true;
     var decodedData = decodeURIComponent(escape(window.atob(e.data)));
-    var rawUpdateEvents = JSON.parse(decodedData);
-    var updateEvents = rawUpdateEvents.map(function (updateEvent) {
-      return _objectSpread2(_objectSpread2({}, updateEvent), updateEvent.auth ? {
-        auth: _objectSpread2(_objectSpread2({}, updateEvent.auth), {}, {
-          realm: new URL(updateEvent.auth.realm)
+    var rawInboundEvents = JSON.parse(decodedData);
+    var inboundEvents = rawInboundEvents.map(function (inboundEvent) {
+      return _objectSpread2(_objectSpread2({}, inboundEvent), inboundEvent.auth ? {
+        auth: _objectSpread2(_objectSpread2({}, inboundEvent.auth), {}, {
+          realm: new URL(inboundEvent.auth.realm)
         })
       } : {});
     });
-    updateEvents.forEach(function (uevent) {
+    inboundEvents.forEach(function (uevent) {
       eventLogger.maybeCaptureInboundEvent(uevent);
-      eventUpdateHandlers[uevent.type](uevent);
+      inboundEventHandlers[uevent.type](uevent);
     });
     scrollEventsDisabled = false;
   };
@@ -783,7 +867,7 @@ var compiledWebviewJs = (function (exports) {
     if (target.matches('.avatar-img')) {
       sendMessage({
         type: 'avatar',
-        fromUserId: requireNumericAttribute(target, 'data-sender-id')
+        fromUserId: makeUserId(requireNumericAttribute(target, 'data-sender-id'))
       });
       return;
     }
@@ -799,7 +883,7 @@ var compiledWebviewJs = (function (exports) {
     if (target.matches('.user-mention')) {
       sendMessage({
         type: 'mention',
-        userId: requireNumericAttribute(target, 'data-user-id')
+        userId: makeUserId(requireNumericAttribute(target, 'data-user-id'))
       });
       return;
     }
@@ -853,10 +937,17 @@ var compiledWebviewJs = (function (exports) {
       });
     }
 
+    var spoilerHeader = target.closest('.spoiler-header');
+
+    if (spoilerHeader instanceof HTMLElement) {
+      toggleSpoiler(spoilerHeader);
+      return;
+    }
+
     var messageElement = target.closest('.message-brief');
 
     if (messageElement) {
-      messageElement.getElementsByClassName('timestamp')[0].classList.toggle('show');
+      messageElement.getElementsByClassName('msg-timestamp')[0].classList.toggle('show');
       return;
     }
   });

@@ -1,5 +1,6 @@
 /* @flow strict-local */
 import { Platform } from 'react-native';
+
 import type { Account, Dispatch, GetState, Identity, Action } from '../types';
 import * as api from '../api';
 import {
@@ -13,9 +14,9 @@ import { getAuth, getActiveAccount } from '../selectors';
 import { getSession, getAccounts } from '../directSelectors';
 import { GOT_PUSH_TOKEN, ACK_PUSH_TOKEN, UNACK_PUSH_TOKEN } from '../actionConstants';
 import { identityOfAccount, authOfAccount } from '../account/accountMisc';
-import { getUsersById } from '../users/userSelectors';
+import { getAllUsersByEmail, getOwnUserId } from '../users/userSelectors';
 import { doNarrow } from '../message/messagesActions';
-import { switchAccount } from '../account/accountActions';
+import { accountSwitch } from '../account/accountActions';
 import { getIdentities } from '../account/accountsSelectors';
 
 export const gotPushToken = (pushToken: string | null): Action => ({
@@ -46,12 +47,16 @@ export const narrowToNotification = (data: ?Notification) => (
   const accountIndex = getAccountFromNotificationData(data, getIdentities(state));
   if (accountIndex !== null && accountIndex > 0) {
     // Notification is for a non-active account.  Switch there.
-    dispatch(switchAccount(accountIndex));
+    dispatch(accountSwitch(accountIndex));
     // TODO actually narrow to conversation.
     return;
   }
 
-  const narrow = getNarrowFromNotificationData(data, getUsersById(state));
+  const narrow = getNarrowFromNotificationData(
+    data,
+    getAllUsersByEmail(state),
+    getOwnUserId(state),
+  );
   if (narrow) {
     dispatch(doNarrow(narrow));
   }

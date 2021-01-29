@@ -1,42 +1,40 @@
 /* @flow strict-local */
-import type { Narrow, UserOrBot, LocalizableText } from '../types';
-import { isStreamNarrow, isTopicNarrow, isPrivateNarrow, isGroupNarrow } from '../utils/narrow';
+import type { Narrow, UserId, UserOrBot, LocalizableText } from '../types';
+import { caseNarrowDefault } from '../utils/narrow';
 
 export default (
   narrow: Narrow,
-  ownEmail: string,
-  usersByEmail: Map<string, UserOrBot>,
-): LocalizableText => {
-  if (isGroupNarrow(narrow)) {
-    return { text: 'Message group' };
-  }
+  ownUserId: UserId,
+  allUsersById: Map<UserId, UserOrBot>,
+): LocalizableText =>
+  caseNarrowDefault(
+    narrow,
+    {
+      pm: ids => {
+        if (ids.length > 1) {
+          return { text: 'Message group' };
+        }
+        const userId = ids[0];
 
-  if (isPrivateNarrow(narrow)) {
-    if (ownEmail && narrow[0].operand === ownEmail) {
-      return { text: 'Jot down something' };
-    }
+        if (userId === ownUserId) {
+          return { text: 'Jot down something' };
+        }
 
-    if (!usersByEmail) {
-      return { text: 'Type a message' };
-    }
+        const user = allUsersById.get(userId);
+        if (!user) {
+          return { text: 'Type a message' };
+        }
 
-    const user = usersByEmail.get(narrow[0].operand) || {};
-    return {
-      text: 'Message {recipient}',
-      values: { recipient: `@${user.full_name}` },
-    };
-  }
-
-  if (isStreamNarrow(narrow)) {
-    return {
-      text: 'Message {recipient}',
-      values: { recipient: `#${narrow[0].operand}` },
-    };
-  }
-
-  if (isTopicNarrow(narrow)) {
-    return { text: 'Reply' };
-  }
-
-  return { text: 'Type a message' };
-};
+        return {
+          text: 'Message {recipient}',
+          values: { recipient: `@${user.full_name}` },
+        };
+      },
+      stream: name => ({
+        text: 'Message {recipient}',
+        values: { recipient: `#${name}` },
+      }),
+      topic: () => ({ text: 'Reply' }),
+    },
+    () => ({ text: 'Type a message' }),
+  );

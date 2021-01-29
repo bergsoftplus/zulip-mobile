@@ -1,6 +1,10 @@
 /* @flow strict-local */
 import type { ComponentType, ElementConfig } from 'react';
-import { connect as connectInner } from 'react-redux';
+import {
+  connect as connectInner,
+  useSelector as useSelectorInner,
+  useDispatch as useDispatchInner,
+} from 'react-redux';
 
 import type { GlobalState, Dispatch } from './types';
 import type { BoundedDiff } from './generics';
@@ -56,4 +60,35 @@ export function connect<SP, P, C: ComponentType<P>>(
     SP>) => SP,
 ): C => ComponentType<$ReadOnly<OwnProps<C, SP>>> {
   return connectInner(mapStateToProps);
+}
+
+/**
+ * Exactly like the `useSelector` in `react-redux` upstream, but more typed.
+ *
+ * Specifically, this encodes once and for all the type of our Redux state.
+ *
+ * Without this, if Flow isn't specifically told that the type of `state` is
+ * `GlobalState`, it'll infer it as `empty` -- which means the selector
+ * function effectively gets no type-checking of anything it does with it.
+ */
+export function useSelector<SS>(
+  selector: (state: GlobalState) => SS,
+  equalityFn?: (a: SS, b: SS) => boolean,
+): SS {
+  return useSelectorInner<GlobalState, SS>(selector, equalityFn);
+}
+
+/**
+ * Exactly like the `useDispatch` in `react-redux` upstream, but more typed.
+ *
+ * Specifically, this encodes once and for all the type of our Redux
+ * dispatch function.
+ *
+ * Without this, if Flow isn't told that the return value is of type
+ * `Dispatch`, it'll infer it as `empty` -- which means we effectively
+ * get no type-checking on the actions we pass to our dispatch
+ * function.
+ */
+export function useDispatch(): Dispatch {
+  return useDispatchInner<Dispatch>();
 }

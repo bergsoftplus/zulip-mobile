@@ -4,7 +4,8 @@ import { FlatList } from 'react-native';
 
 import type { Dispatch, PmConversationData, UserOrBot } from '../types';
 import { createStyleSheet } from '../styles';
-import { privateNarrow, groupNarrow } from '../utils/narrow';
+import { type PmKeyUsers } from '../utils/recipient';
+import { pm1to1NarrowFromUser, pmNarrowFromUsers } from '../utils/narrow';
 import UserItem from '../users/UserItem';
 import GroupPmConversationItem from './GroupPmConversationItem';
 import { doNarrow } from '../actions';
@@ -19,57 +20,48 @@ const styles = createStyleSheet({
 type Props = $ReadOnly<{|
   dispatch: Dispatch,
   conversations: PmConversationData[],
-  usersByEmail: Map<string, UserOrBot>,
 |}>;
 
 /**
  * A list describing all PM conversations.
  * */
 export default class PmConversationList extends PureComponent<Props> {
-  handleUserNarrow = (email: string) => {
-    this.props.dispatch(doNarrow(privateNarrow(email)));
+  handleUserNarrow = (user: UserOrBot) => {
+    this.props.dispatch(doNarrow(pm1to1NarrowFromUser(user)));
   };
 
-  handleGroupNarrow = (email: string) => {
-    this.props.dispatch(doNarrow(groupNarrow(email.split(','))));
+  handleGroupNarrow = (users: PmKeyUsers) => {
+    this.props.dispatch(doNarrow(pmNarrowFromUsers(users)));
   };
 
   render() {
-    const { conversations, usersByEmail } = this.props;
+    const { conversations } = this.props;
 
     return (
       <FlatList
         style={styles.list}
         initialNumToRender={20}
         data={conversations}
-        keyExtractor={item => item.recipients}
+        keyExtractor={item => item.key}
         renderItem={({ item }) => {
-          if (item.recipients.indexOf(',') === -1) {
-            const user = usersByEmail.get(item.recipients);
-
-            if (!user) {
-              return null;
-            }
-
+          const users = item.keyRecipients;
+          if (users.length === 1) {
             return (
               <UserItem
-                email={user.email}
-                fullName={user.full_name}
-                avatarUrl={user.avatar_url}
+                userId={users[0].user_id}
                 unreadCount={item.unread}
                 onPress={this.handleUserNarrow}
               />
             );
+          } else {
+            return (
+              <GroupPmConversationItem
+                users={users}
+                unreadCount={item.unread}
+                onPress={this.handleGroupNarrow}
+              />
+            );
           }
-
-          return (
-            <GroupPmConversationItem
-              email={item.recipients}
-              unreadCount={item.unread}
-              usersByEmail={usersByEmail}
-              onPress={this.handleGroupNarrow}
-            />
-          );
         }}
       />
     );

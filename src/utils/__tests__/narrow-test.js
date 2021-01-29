@@ -1,11 +1,11 @@
+/* @flow strict-local */
+
 import {
   HOME_NARROW,
   isHomeNarrow,
-  privateNarrow,
-  isPrivateNarrow,
-  groupNarrow,
-  isGroupNarrow,
-  specialNarrow,
+  pm1to1NarrowFromUser,
+  is1to1PmNarrow,
+  pmNarrowFromUsersUnsafe,
   isSpecialNarrow,
   ALL_PRIVATE_NARROW,
   streamNarrow,
@@ -14,108 +14,47 @@ import {
   isTopicNarrow,
   SEARCH_NARROW,
   isSearchNarrow,
-  isPrivateOrGroupNarrow,
+  isPmNarrow,
   isMessageInNarrow,
-  isSameNarrow,
   isStreamOrTopicNarrow,
-  getNarrowFromMessage,
-  parseNarrowString,
+  getNarrowsForMessage,
+  getNarrowForReply,
+  parseNarrow,
   STARRED_NARROW,
   MENTIONED_NARROW,
+  keyFromNarrow,
+  streamNameOfNarrow,
+  topicOfNarrow,
+  caseNarrowPartial,
 } from '../narrow';
+import type { Narrow, Message } from '../../types';
+import * as eg from '../../__tests__/lib/exampleData';
 
 describe('HOME_NARROW', () => {
-  test('produces an empty list', () => {
-    expect(HOME_NARROW).toEqual([]);
-  });
-
-  test('empty list is a home narrow', () => {
-    expect(isHomeNarrow([])).toBe(true);
+  test('is a home narrow', () => {
+    expect(isHomeNarrow(HOME_NARROW)).toBe(true);
   });
 });
 
-describe('privateNarrow', () => {
-  test('produces an one item list, pm-with operator and single email', () => {
-    expect(privateNarrow('bob@example.com')).toEqual([
-      {
-        operator: 'pm-with',
-        operand: 'bob@example.com',
-      },
-    ]);
+describe('pm1to1NarrowFromUser', () => {
+  test('produces a 1:1 narrow', () => {
+    const narrow = pm1to1NarrowFromUser(eg.otherUser);
+    expect(is1to1PmNarrow(narrow)).toBeTrue();
+    expect(caseNarrowPartial(narrow, { pm: ids => ids })).toEqual([eg.otherUser.user_id]);
   });
 
   test('if operator is "pm-with" and only one email, then it is a private narrow', () => {
-    expect(isPrivateNarrow([])).toBe(false);
-    expect(isPrivateNarrow([{}, {}])).toBe(false);
-    expect(isPrivateNarrow(privateNarrow('bob@example.com'))).toBe(true);
-    expect(
-      isPrivateNarrow([
-        {
-          operator: 'pm-with',
-          operand: 'bob@example.com',
-        },
-      ]),
-    ).toBe(true);
+    expect(is1to1PmNarrow(HOME_NARROW)).toBe(false);
+    expect(is1to1PmNarrow(pm1to1NarrowFromUser(eg.otherUser))).toBe(true);
   });
 });
 
-describe('groupNarrow', () => {
-  test('returns a narrow with specified recipients', () => {
-    expect(groupNarrow(['bob@example.com', 'john@example.com'])).toEqual([
-      {
-        operator: 'pm-with',
-        operand: 'bob@example.com,john@example.com',
-      },
-    ]);
-  });
-
-  test('a group narrow is only private chat with more than one recipients', () => {
-    expect(isGroupNarrow([])).toBe(false);
-    expect(isGroupNarrow([{}, {}])).toBe(false);
-    expect(isGroupNarrow(privateNarrow('bob@example.com'))).toBe(false);
-    expect(isGroupNarrow(groupNarrow(['bob@example.com', 'john@example.com']))).toBe(true);
-    expect(
-      isGroupNarrow([
-        {
-          operator: 'pm-with',
-          operand: 'bob@example.com',
-        },
-      ]),
-    ).toBe(false);
-    expect(
-      isGroupNarrow([
-        {
-          operator: 'pm-with',
-          operand: 'bob@example.com,john@example.com',
-        },
-      ]),
-    ).toBe(true);
-  });
-});
-
-describe('isPrivateOrGroupNarrow', () => {
+describe('isPmNarrow', () => {
   test('a private or group narrow is any "pm-with" narrow', () => {
-    expect(isPrivateOrGroupNarrow(undefined)).toBe(false);
-    expect(isPrivateOrGroupNarrow([])).toBe(false);
-    expect(isPrivateOrGroupNarrow([{}, {}])).toBe(false);
-    expect(isPrivateOrGroupNarrow(privateNarrow('bob@example.com'))).toBe(true);
-    expect(isPrivateOrGroupNarrow(groupNarrow(['bob@example.com', 'john@example.com']))).toBe(true);
-    expect(
-      isPrivateOrGroupNarrow([
-        {
-          operator: 'pm-with',
-          operand: 'bob@example.com',
-        },
-      ]),
-    ).toBe(true);
-    expect(
-      isPrivateOrGroupNarrow([
-        {
-          operator: 'pm-with',
-          operand: 'bob@example.com,john@example.com',
-        },
-      ]),
-    ).toBe(true);
+    expect(isPmNarrow(undefined)).toBe(false);
+    expect(isPmNarrow(HOME_NARROW)).toBe(false);
+    expect(isPmNarrow(pm1to1NarrowFromUser(eg.otherUser))).toBe(true);
+    expect(isPmNarrow(pmNarrowFromUsersUnsafe([eg.otherUser, eg.thirdUser]))).toBe(true);
   });
 });
 
@@ -125,8 +64,8 @@ describe('isStreamOrTopicNarrow', () => {
     expect(isStreamOrTopicNarrow(streamNarrow('some stream'))).toBe(true);
     expect(isStreamOrTopicNarrow(topicNarrow('some stream', 'some topic'))).toBe(true);
     expect(isStreamOrTopicNarrow(HOME_NARROW)).toBe(false);
-    expect(isStreamOrTopicNarrow(privateNarrow('a@a.com'))).toBe(false);
-    expect(isStreamOrTopicNarrow(groupNarrow(['john@example.com', 'mark@example.com']))).toBe(
+    expect(isStreamOrTopicNarrow(pm1to1NarrowFromUser(eg.otherUser))).toBe(false);
+    expect(isStreamOrTopicNarrow(pmNarrowFromUsersUnsafe([eg.otherUser, eg.thirdUser]))).toBe(
       false,
     );
     expect(isStreamOrTopicNarrow(STARRED_NARROW)).toBe(false);
@@ -134,283 +73,300 @@ describe('isStreamOrTopicNarrow', () => {
 });
 
 describe('specialNarrow', () => {
-  test('produces a narrow with "is" operator', () => {
-    expect(STARRED_NARROW).toEqual([
-      {
-        operator: 'is',
-        operand: 'starred',
-      },
-    ]);
-  });
-
   test('only narrowing with the "is" operator is special narrow', () => {
     expect(isSpecialNarrow(undefined)).toBe(false);
-    expect(isSpecialNarrow([])).toBe(false);
-    expect(isSearchNarrow([{}, {}])).toBe(false);
+    expect(isSpecialNarrow(HOME_NARROW)).toBe(false);
     expect(isSpecialNarrow(streamNarrow('some stream'))).toBe(false);
     expect(isSpecialNarrow(STARRED_NARROW)).toBe(true);
-    expect(isSpecialNarrow([{ operator: 'stream', operand: 'some stream' }])).toBe(false);
-    expect(isSpecialNarrow([{ operator: 'is', operand: 'starred' }])).toBe(true);
   });
 });
 
 describe('streamNarrow', () => {
   test('narrows to messages from a specific stream', () => {
-    expect(streamNarrow('some stream')).toEqual([
-      {
-        operator: 'stream',
-        operand: 'some stream',
-      },
-    ]);
+    const narrow = streamNarrow('some stream');
+    expect(isStreamNarrow(narrow)).toBeTrue();
+    expect(streamNameOfNarrow(narrow)).toEqual('some stream');
   });
 
   test('only narrow with operator of "stream" is a stream narrow', () => {
     expect(isStreamNarrow(undefined)).toBe(false);
-    expect(isStreamNarrow([])).toBe(false);
-    expect(isSearchNarrow([{}, {}])).toBe(false);
+    expect(isStreamNarrow(HOME_NARROW)).toBe(false);
     expect(isStreamNarrow(streamNarrow('some stream'))).toBe(true);
-    expect(isStreamNarrow([{ operator: 'stream', operand: 'some stream' }])).toBe(true);
   });
 });
 
 describe('topicNarrow', () => {
   test('narrows to a specific topic within a specified stream', () => {
-    expect(topicNarrow('some stream', 'some topic')).toEqual([
-      { operator: 'stream', operand: 'some stream' },
-      { operator: 'topic', operand: 'some topic' },
-    ]);
+    const narrow = topicNarrow('some stream', 'some topic');
+    expect(isTopicNarrow(narrow)).toBeTrue();
+    expect(streamNameOfNarrow(narrow)).toEqual('some stream');
+    expect(topicOfNarrow(narrow)).toEqual('some topic');
   });
 
   test('only narrow with two items, one for stream, one for topic is a topic narrow', () => {
     expect(isTopicNarrow(undefined)).toBe(false);
-    expect(isTopicNarrow([])).toBe(false);
+    expect(isTopicNarrow(HOME_NARROW)).toBe(false);
     expect(isTopicNarrow(topicNarrow('some stream', 'some topic'))).toBe(true);
-    expect(
-      isTopicNarrow([
-        {
-          operator: 'stream',
-          operand: 'some stream',
-        },
-        {
-          operator: 'topic',
-          operand: 'some topic',
-        },
-      ]),
-    ).toBe(true);
   });
 });
 
 describe('SEARCH_NARROW', () => {
-  test('produces a narrow for a search query', () => {
-    expect(SEARCH_NARROW('some query')).toEqual([
-      {
-        operator: 'search',
-        operand: 'some query',
-      },
-    ]);
-  });
-
   test('narrow with "search" operand is a search narrow', () => {
     expect(isSearchNarrow(undefined)).toBe(false);
-    expect(isSearchNarrow([])).toBe(false);
-    expect(isSearchNarrow([{}, {}])).toBe(false);
-    expect(isSearchNarrow([{ operator: 'search' }])).toBe(true);
+    expect(isSearchNarrow(HOME_NARROW)).toBe(false);
+    expect(isSearchNarrow(SEARCH_NARROW('some query'))).toBe(true);
   });
 });
 
 describe('isMessageInNarrow', () => {
-  test('any message is in "Home"', () => {
-    const message = {
-      flags: [],
-    };
-    const narrow = HOME_NARROW;
-    expect(isMessageInNarrow(message, narrow)).toBe(true);
-  });
+  const otherStream = eg.makeStream();
 
-  test('message with type "private" is in private narrow if recipient matches', () => {
-    const message = {
-      flags: [],
-      type: 'private',
-      display_recipient: [{ email: 'me@example.com' }, { email: 'john@example.com' }],
-    };
-    const narrow = privateNarrow('john@example.com');
+  // prettier-ignore
+  for (const [narrowDescription, narrow, cases] of [
+    ['all-messages ("home") narrow', HOME_NARROW, [
+      ['a message', true, eg.streamMessage()],
+    ]],
 
-    expect(isMessageInNarrow(message, narrow, 'me@example.com')).toBe(true);
-  });
+    ['whole-stream narrow', streamNarrow(eg.stream.name), [
+      ['matching stream message', true, eg.streamMessage()],
+      ['other-stream message', false, eg.streamMessage({ stream: otherStream })],
+      ['PM', false, eg.pmMessage()],
+    ]],
+    ['stream conversation', topicNarrow(eg.stream.name, 'cabbages'), [
+      ['matching message', true, eg.streamMessage({ subject: 'cabbages' })],
+      ['message in same stream but other topic', false, eg.streamMessage({ subject: 'kings' })],
+      ['other-stream message', false, eg.streamMessage({ stream: otherStream })],
+      ['PM', false, eg.pmMessage()],
+    ]],
 
-  test('message to self is in "private" narrow with self', () => {
-    const message = {
-      flags: [],
-      type: 'private',
-      display_recipient: [{ email: 'me@example.com' }],
-    };
-    const narrow = privateNarrow('me@example.com');
+    ['1:1 PM conversation, non-self', pm1to1NarrowFromUser(eg.otherUser), [
+      ['matching PM, inbound', true, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser])],
+      ['matching PM, outbound', true, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser])],
+      ['self-1:1 message', false, eg.pmMessageFromTo(eg.selfUser, [])],
+      ['group-PM including this user, inbound', false, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser, eg.thirdUser])],
+      ['group-PM including this user, outbound', false, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser, eg.thirdUser])],
+      ['stream message', false, eg.streamMessage()],
+    ]],
+    ['self-1:1 conversation', pm1to1NarrowFromUser(eg.selfUser), [
+      ['self-1:1 message', true, eg.pmMessageFromTo(eg.selfUser, [])],
+      ['other 1:1 message, inbound', false, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser])],
+      ['other 1:1 message, outbound', false, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser])],
+      ['group-PM, inbound', false, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser, eg.thirdUser])],
+      ['group-PM, outbound', false, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser, eg.thirdUser])],
+      ['stream message', false, eg.streamMessage()],
+    ]],
+    ['group-PM conversation', pmNarrowFromUsersUnsafe([eg.otherUser, eg.thirdUser]), [
+      ['matching group-PM, inbound', true, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser, eg.thirdUser])],
+      ['matching group-PM, outbound', true, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser, eg.thirdUser])],
+      ['1:1 within group, inbound', false, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser])],
+      ['1:1 within group, outbound', false, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser])],
+      ['self-1:1 message', false, eg.pmMessageFromTo(eg.selfUser, [])],
+      ['stream message', false, eg.streamMessage()],
+    ]],
+    ['group-PM conversation, including self', pmNarrowFromUsersUnsafe([eg.selfUser, eg.otherUser, eg.thirdUser]), [
+      ['matching group-PM, inbound', true, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser, eg.thirdUser])],
+      ['matching group-PM, outbound', true, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser, eg.thirdUser])],
+      ['1:1 within group, inbound', false, eg.pmMessageFromTo(eg.otherUser, [eg.selfUser])],
+      ['1:1 within group, outbound', false, eg.pmMessageFromTo(eg.selfUser, [eg.otherUser])],
+      ['self-1:1 message', false, eg.pmMessageFromTo(eg.selfUser, [])],
+      ['stream message', false, eg.streamMessage()],
+    ]],
+    ['all-PMs narrow', ALL_PRIVATE_NARROW, [
+      ['a PM', true, eg.pmMessage()],
+      ['stream message', false, eg.streamMessage()],
+    ]],
 
-    expect(isMessageInNarrow(message, narrow, 'me@example.com')).toBe(true);
-  });
+    ['is:mentioned', MENTIONED_NARROW, [
+      ['w/ mentioned flag', true, eg.streamMessage({ flags: ['mentioned'] })],
+      ['w/ wildcard_mentioned flag', true, eg.streamMessage({ flags: ['wildcard_mentioned'] })],
+      ['w/o flags', false, eg.streamMessage()],
+    ]],
+    ['is:starred', STARRED_NARROW, [
+      ['w/ starred flag', true, eg.streamMessage({ flags: ['starred'] })],
+      ['w/o flags', false, eg.streamMessage()],
+    ]],
+  ]) {
+    describe(narrowDescription, () => {
+      for (const [messageDescription, expected, message] of cases) {
+        test(`${expected ? 'contains' : 'excludes'} ${messageDescription}`, () => {
+          expect(
+            isMessageInNarrow(message, message.flags ?? [], narrow, eg.selfUser.user_id),
+          ).toBe(expected);
+        });
+      }
+    });
+  }
+});
 
-  test('message with type "private" is in group narrow if all recipients match ', () => {
-    const message = {
-      type: 'private',
-      flags: [],
-      display_recipient: [
-        { email: 'me@example.com' },
-        { email: 'john@example.com' },
-        { email: 'mark@example.com' },
+describe('getNarrowsForMessage', () => {
+  /**
+   * Helper function that tests one Message.
+   *
+   * In addition to the expected output the case declares, also expect
+   * MENTIONED_NARROW or STARRED_NARROW if those flags are present.
+   */
+  // Tell ESLint to recognize `checkCase` as a helper function that
+  // runs assertions.
+  /* eslint jest/expect-expect: ["error", { "assertFunctionNames": ["expect", "checkCase"] }] */
+  const checkCase = (c: {| label: string, message: Message, expectedNarrows: Narrow[] |}) => {
+    test(`${c.label}; no flags`, () => {
+      expect(getNarrowsForMessage(c.message, eg.selfUser.user_id, [])).toIncludeSameMembers(
+        c.expectedNarrows,
+      );
+    });
+
+    test(`${c.label}; starred`, () => {
+      expect(
+        getNarrowsForMessage(c.message, eg.selfUser.user_id, ['starred']),
+      ).toIncludeSameMembers([...c.expectedNarrows, STARRED_NARROW]);
+    });
+
+    test(`${c.label}; mentioned`, () => {
+      expect(
+        getNarrowsForMessage(c.message, eg.selfUser.user_id, ['mentioned']),
+      ).toIncludeSameMembers([...c.expectedNarrows, MENTIONED_NARROW]);
+    });
+
+    test(`${c.label}; wildcard_mentioned`, () => {
+      expect(
+        getNarrowsForMessage(c.message, eg.selfUser.user_id, ['mentioned']),
+      ).toIncludeSameMembers([...c.expectedNarrows, MENTIONED_NARROW]);
+    });
+
+    test(`${c.label}; starred, mentioned, and wildcard_mentioned`, () => {
+      expect(
+        getNarrowsForMessage(c.message, eg.selfUser.user_id, [
+          'starred',
+          'mentioned',
+          'wildcard_mentioned',
+        ]),
+      ).toIncludeSameMembers([...c.expectedNarrows, STARRED_NARROW, MENTIONED_NARROW]);
+    });
+  };
+
+  const cases = [
+    {
+      label: "Message in stream 'myStream' with topic 'myTopic'",
+      message: {
+        ...eg.streamMessage({ stream: eg.makeStream({ name: 'myStream' }) }),
+        subject: 'myTopic',
+      },
+      expectedNarrows: [HOME_NARROW, streamNarrow('myStream'), topicNarrow('myStream', 'myTopic')],
+    },
+    {
+      // If we find that `subject` is sometimes the empty string and
+      // that needs to be treated as a special case, this case should
+      // be edited.
+      //
+      // It's not currently clear that we'd ever get a stream message
+      // with the empty string for `subject` from the server.
+      //
+      // We don't store outbox messages with the empty string for
+      // `subject`; if the topic input is left blank, we put down
+      // '(no topic)' for `subject`.
+      label: "Message in stream 'myStream' with empty-string topic",
+      message: {
+        ...eg.streamMessage({ stream: eg.makeStream({ name: 'myStream' }) }),
+        subject: '',
+      },
+      expectedNarrows: [HOME_NARROW, streamNarrow('myStream'), topicNarrow('myStream', '')],
+    },
+    {
+      label: 'PM message with one person',
+      message: eg.pmMessage(),
+      expectedNarrows: [HOME_NARROW, ALL_PRIVATE_NARROW, pm1to1NarrowFromUser(eg.otherUser)],
+    },
+    {
+      label: 'Group PM message',
+      message: eg.pmMessageFromTo(eg.otherUser, [eg.selfUser, eg.thirdUser]),
+      expectedNarrows: [
+        HOME_NARROW,
+        ALL_PRIVATE_NARROW,
+        pmNarrowFromUsersUnsafe([eg.otherUser, eg.thirdUser]),
       ],
-    };
-    const ownEmail = 'me@example.com';
-    const narrow = groupNarrow(['john@example.com', 'mark@example.com']);
+    },
+  ];
 
-    expect(isMessageInNarrow(message, narrow, ownEmail)).toBe(true);
-  });
-
-  test('message with type "private" is always in "private messages" narrow', () => {
-    const message = {
-      flags: [],
-      type: 'private',
-      display_recipient: [{ email: 'me@example.com' }, { email: 'john@example.com' }],
-    };
-    expect(isMessageInNarrow(message, ALL_PRIVATE_NARROW)).toBe(true);
-  });
-
-  test('message with type "stream" is in narrow if recipient and current stream match', () => {
-    const message = {
-      flags: [],
-      type: 'stream',
-      display_recipient: 'some stream',
-    };
-    const narrow = streamNarrow('some stream');
-
-    expect(isMessageInNarrow(message, narrow)).toBe(true);
-  });
-
-  test('message with flags undefined throws an error', () => {
-    const message = {
-      // no flags key
-    };
-    expect(() => isMessageInNarrow(message, MENTIONED_NARROW)).toThrow();
-  });
-
-  test('message with flag "mentioned" is in is:mentioned narrow', () => {
-    const message = {
-      flags: ['mentioned'],
-    };
-    expect(isMessageInNarrow(message, MENTIONED_NARROW)).toBe(true);
-  });
-
-  test('message with flag "wildcard_mentioned" is in is:mentioned narrow', () => {
-    const message = {
-      flags: ['wildcard_mentioned'],
-    };
-    expect(isMessageInNarrow(message, MENTIONED_NARROW)).toBe(true);
-  });
-
-  test('message without flag "mentioned" or "wildcard_mentioned" is not in is:mentioned narrow', () => {
-    const message = {
-      flags: [],
-    };
-    expect(isMessageInNarrow(message, MENTIONED_NARROW)).toBe(false);
-  });
-
-  test('message with flag "starred" is in is:starred narrow', () => {
-    const message = {
-      flags: ['starred'],
-    };
-    expect(isMessageInNarrow(message, STARRED_NARROW)).toBe(true);
-  });
-
-  test('message without flag "starred" is not in is:starred narrow', () => {
-    const message = {
-      flags: [],
-    };
-    expect(isMessageInNarrow(message, STARRED_NARROW)).toBe(false);
-  });
-
-  test('message with type stream is in topic narrow if current stream and topic match with its own', () => {
-    const message = {
-      type: 'stream',
-      subject: 'some topic',
-      display_recipient: 'some stream',
-      flags: [],
-    };
-    const narrow = topicNarrow('some stream', 'some topic');
-
-    expect(isMessageInNarrow(message, narrow)).toBe(true);
+  cases.forEach(c => {
+    checkCase(c);
   });
 });
 
-describe('getNarrowFromMessage', () => {
-  test('message with single recipient, returns a private narrow', () => {
-    const message = {
-      display_recipient: [{ email: 'bob@example.com' }],
-    };
-    const ownEmail = 'hamlet@zulip.com';
-
-    const expectedNarrow = privateNarrow('bob@example.com');
-
-    const actualNarrow = getNarrowFromMessage(message, ownEmail);
-
-    expect(actualNarrow).toEqual(expectedNarrow);
-  });
-
-  test('for message with multiple recipients, return a group narrow', () => {
-    const message = {
-      display_recipient: [{ email: 'bob@example.com' }, { email: 'john@example.com' }],
-    };
-    const ownEmail = 'hamlet@zulip.com';
-    const expectedNarrow = groupNarrow(['bob@example.com', 'john@example.com']);
-
-    const actualNarrow = getNarrowFromMessage(message, ownEmail);
-
-    expect(actualNarrow).toEqual(expectedNarrow);
-  });
-
-  test('if recipient of a message is string, returns a stream narrow', () => {
-    const message = {
-      display_recipient: 'stream',
-    };
-    const expectedNarrow = streamNarrow('stream');
-
-    const actualNarrow = getNarrowFromMessage(message);
-
-    expect(actualNarrow).toEqual(expectedNarrow);
-  });
-
-  test('if recipient is a string and there is a subject returns a topic narrow', () => {
-    const message = {
-      display_recipient: 'stream',
-      subject: 'subject',
-    };
-    const expectedNarrow = topicNarrow('stream', 'subject');
-
-    const actualNarrow = getNarrowFromMessage(message);
-
-    expect(actualNarrow).toEqual(expectedNarrow);
-  });
-});
-
-describe('isSameNarrow', () => {
-  test('Return true if two narrows are same', () => {
-    expect(isSameNarrow(undefined, undefined)).toBe(false);
-    expect(isSameNarrow(streamNarrow('stream'), undefined)).toBe(false);
-    expect(isSameNarrow(streamNarrow('stream'), streamNarrow('stream'))).toBe(true);
-    expect(isSameNarrow(streamNarrow('stream'), streamNarrow('stream1'))).toBe(false);
-    expect(isSameNarrow(streamNarrow('stream'), topicNarrow('stream', 'topic'))).toBe(false);
-    expect(isSameNarrow(topicNarrow('stream', 'topic'), topicNarrow('stream', 'topic'))).toBe(true);
-    expect(isSameNarrow(topicNarrow('stream', 'topic'), topicNarrow('stream', 'topic1'))).toBe(
-      false,
+describe('getNarrowForReply', () => {
+  test('for self-PM, returns self-1:1 narrow', () => {
+    expect(getNarrowForReply(eg.pmMessageFromTo(eg.selfUser, []), eg.selfUser.user_id)).toEqual(
+      pm1to1NarrowFromUser(eg.selfUser),
     );
-    expect(isSameNarrow(HOME_NARROW, specialNarrow('private'))).toBe(false);
-    expect(isSameNarrow(HOME_NARROW, HOME_NARROW)).toBe(true);
+  });
+
+  test('for 1:1 PM, returns a 1:1 PM narrow', () => {
+    const message = eg.pmMessage();
+    const expectedNarrow = pm1to1NarrowFromUser(eg.otherUser);
+
+    const actualNarrow = getNarrowForReply(message, eg.selfUser.user_id);
+
+    expect(actualNarrow).toEqual(expectedNarrow);
+  });
+
+  test('for group PM, returns a group PM narrow', () => {
+    const message = eg.pmMessageFromTo(eg.otherUser, [eg.selfUser, eg.thirdUser]);
+    const expectedNarrow = pmNarrowFromUsersUnsafe([eg.otherUser, eg.thirdUser]);
+
+    const actualNarrow = getNarrowForReply(message, eg.selfUser.user_id);
+
+    expect(actualNarrow).toEqual(expectedNarrow);
+  });
+
+  test('for stream message with nonempty topic, returns a topic narrow', () => {
+    const message = eg.streamMessage();
+    const expectedNarrow = topicNarrow(eg.stream.name, message.subject);
+
+    const actualNarrow = getNarrowForReply(message, eg.selfUser.user_id);
+
+    expect(actualNarrow).toEqual(expectedNarrow);
   });
 });
 
-describe('parseNarrowString', () => {
-  test('straightforward arrays are parsed', () => {
-    expect(parseNarrowString('[]')).toEqual([]);
-    expect(parseNarrowString('[{&quot;operator&quot;:&quot;hey&quot;}]')).toEqual([
-      { operator: 'hey' },
-    ]);
+describe('keyFromNarrow+parseNarrow', () => {
+  const baseNarrows = [
+    ['whole stream', streamNarrow(eg.stream.name)],
+    ['stream conversation', topicNarrow(eg.stream.name, 'a topic')],
+    ['1:1 PM conversation, non-self', pm1to1NarrowFromUser(eg.otherUser)],
+    ['self-1:1 conversation', pm1to1NarrowFromUser(eg.selfUser)],
+    ['group-PM conversation', pmNarrowFromUsersUnsafe([eg.otherUser, eg.thirdUser])],
+    ['all-messages ("home")', HOME_NARROW],
+    ['is:starred', STARRED_NARROW],
+    ['is:mentioned', MENTIONED_NARROW],
+    ['all-PMs', ALL_PRIVATE_NARROW],
+    ['search narrow', SEARCH_NARROW('a query')],
+  ];
+
+  // The only character not allowed in Zulip stream names is '\x00'.
+  // (See `check_stream_name` in zulip.git:zerver/lib/streams.py.)
+  // Try approximately everything else.
+  /* eslint-disable no-control-regex */
+  const diverseCharacters = eg.diverseCharacters.replace(/\x00/g, '');
+  const htmlEntities = 'h & t &amp; &lquo;ml&quot;';
+  const awkwardNarrows = [
+    ['whole stream about awkward characters', streamNarrow(diverseCharacters)],
+    ['whole stream about HTML entities', streamNarrow(htmlEntities)],
+    [
+      'stream conversation about awkward characters',
+      topicNarrow(diverseCharacters, `regarding ${diverseCharacters}`),
+    ],
+    [
+      'stream conversation about HTML entities',
+      topicNarrow(htmlEntities, `regarding ${htmlEntities}`),
+    ],
+    ['search narrow for awkward characters', SEARCH_NARROW(diverseCharacters)],
+    ['search narrow for HTML entities', SEARCH_NARROW(htmlEntities)],
+  ];
+
+  describe('round-trips', () => {
+    for (const [description, narrow] of [...baseNarrows, ...awkwardNarrows]) {
+      test(description, () => {
+        expect(parseNarrow(keyFromNarrow(narrow))).toEqual(narrow);
+      });
+    }
   });
 });

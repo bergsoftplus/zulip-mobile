@@ -1,20 +1,24 @@
 /* @flow strict-local */
 import React, { PureComponent } from 'react';
 import { TextInput, Platform } from 'react-native';
-import { FormattedMessage } from 'react-intl';
 
-import type { LocalizableText } from '../types';
+import type { LocalizableText, GetText } from '../types';
 import type { ThemeData } from '../styles';
 import { ThemeContext, HALF_COLOR, BORDER_COLOR } from '../styles';
+import { withGetText } from '../boot/TranslationProvider';
 
 export type Props = $ReadOnly<{|
-  // Should be fixed in RN v0.63 (#4245); see
-  // https://github.com/zulip/zulip-mobile/issues/4245#issuecomment-695104351.
-  // $FlowFixMe
-  ...$PropertyType<typeof TextInput, 'props'>,
+  ...React$ElementConfig<typeof TextInput>,
   placeholder: LocalizableText,
   onChangeText?: (text: string) => void,
-  textInputRef?: React$Ref<typeof TextInput>,
+
+  // We should replace the fixme with
+  // `React$ElementRef<typeof TextInput>` when we can. Currently, that
+  // would make `.current` be `any(implicit)`, which we don't want;
+  // this is probably down to bugs in Flow's special support for React.
+  textInputRef?: React$Ref<$FlowFixMe>,
+
+  _: GetText,
 |}>;
 
 type State = {|
@@ -35,7 +39,7 @@ type State = {|
  * @prop ...all other TextInput props - Passed through verbatim to TextInput.
  *   See upstream: https://reactnative.dev/docs/textinput
  */
-export default class Input extends PureComponent<Props, State> {
+class Input extends PureComponent<Props, State> {
   static contextType = ThemeContext;
   context: ThemeData;
 
@@ -69,7 +73,7 @@ export default class Input extends PureComponent<Props, State> {
   };
 
   render() {
-    const { style, placeholder, textInputRef, ...restProps } = this.props;
+    const { style, placeholder, textInputRef, _, ...restProps } = this.props;
     const { isFocused } = this.state;
     const fullPlaceholder =
       typeof placeholder === 'object' /* force linebreak */
@@ -77,24 +81,18 @@ export default class Input extends PureComponent<Props, State> {
         : { text: placeholder, values: undefined };
 
     return (
-      <FormattedMessage
-        id={fullPlaceholder.text}
-        defaultMessage={fullPlaceholder.text}
-        values={fullPlaceholder.values}
-      >
-        {(text: string) => (
-          <TextInput
-            style={[this.styles.input, { color: this.context.color }, style]}
-            placeholder={text}
-            placeholderTextColor={HALF_COLOR}
-            underlineColorAndroid={isFocused ? BORDER_COLOR : HALF_COLOR}
-            onFocus={this.handleFocus}
-            onBlur={this.handleBlur}
-            ref={textInputRef}
-            {...restProps}
-          />
-        )}
-      </FormattedMessage>
+      <TextInput
+        style={[this.styles.input, { color: this.context.color }, style]}
+        placeholder={_(fullPlaceholder.text, fullPlaceholder.values)}
+        placeholderTextColor={HALF_COLOR}
+        underlineColorAndroid={isFocused ? BORDER_COLOR : HALF_COLOR}
+        onFocus={this.handleFocus}
+        onBlur={this.handleBlur}
+        ref={textInputRef}
+        {...restProps}
+      />
     );
   }
 }
+
+export default withGetText(Input);

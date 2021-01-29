@@ -3,8 +3,8 @@ import { DeviceEventEmitter, NativeModules, Platform, PushNotificationIOS } from
 import NotificationsIOS from 'react-native-notifications';
 
 import type { Notification } from './types';
-import type { Auth, Dispatch, Identity, Narrow, User } from '../types';
-import { topicNarrow, privateNarrow, groupNarrow } from '../utils/narrow';
+import type { Auth, Dispatch, Identity, Narrow, UserId, UserOrBot } from '../types';
+import { topicNarrow, pm1to1NarrowFromUser, pmNarrowFromRecipients } from '../utils/narrow';
 import type { JSONable, JSONableDict } from '../utils/jsonable';
 import * as api from '../api';
 import * as logging from '../utils/logging';
@@ -16,6 +16,9 @@ import {
 } from './notificationActions';
 import { identityOfAuth } from '../account/accountMisc';
 import { fromAPNs } from './extract';
+import { tryParseUrl } from '../utils/url';
+import { pmKeyRecipientsFromIds } from '../utils/recipient';
+import { makeUserId } from '../api/idTypes';
 
 /**
  * Identify the account the notification is for, if possible.
@@ -36,9 +39,15 @@ export const getAccountFromNotificationData = (
     return null;
   }
 
+  const realmUrl = tryParseUrl(realm_uri);
+  if (realmUrl === undefined) {
+    logging.warn('notification realm_uri invalid as URL', { realm_uri });
+    return null;
+  }
+
   const urlMatches = [];
   identities.forEach((account, i) => {
-    if (account.realm.toString() === realm_uri) {
+    if (account.realm.href === realmUrl.href) {
       urlMatches.push(i);
     }
   });
@@ -49,9 +58,10 @@ export const getAccountFromNotificationData = (
     // just a race -- this notification was sent before the logout); or
     // there's some confusion where the realm_uri we have is different from
     // the one the server sends in notifications.
-    const knownUrls = identities.map(({ realm }) => realm.toString());
+    const knownUrls = identities.map(({ realm }) => realm.href);
     logging.warn('notification realm_uri not found in accounts', {
       realm_uri,
+      parsed_url: realmUrl,
       known_urls: knownUrls,
     });
     return null;
@@ -64,6 +74,7 @@ export const getAccountFromNotificationData = (
     // fix that, just ignore the information.
     logging.warn('notification realm_uri ambiguous; multiple matches found', {
       realm_uri,
+      parsed_url: realmUrl,
       match_count: urlMatches.length,
     });
     // TODO get user_id into accounts data, and use that
@@ -75,7 +86,8 @@ export const getAccountFromNotificationData = (
 
 export const getNarrowFromNotificationData = (
   data: Notification,
-  usersById: Map<number, User>,
+  allUsersByEmail: Map<string, UserOrBot>,
+  ownUserId: UserId,
 ): Narrow | null => {
   if (!data.recipient_type) {
     // This condition is impossible if the value is rightly-typed; but in
@@ -91,19 +103,12 @@ export const getNarrowFromNotificationData = (
   }
 
   if (data.pm_users === undefined) {
-    return privateNarrow(data.sender_email);
+    const user = allUsersByEmail.get(data.sender_email);
+    return (user && pm1to1NarrowFromUser(user)) ?? null;
   }
 
-  const emails = [];
-  const idStrs = data.pm_users.split(',');
-  for (let i = 0; i < idStrs.length; ++i) {
-    const user = usersById.get(+idStrs[i]);
-    if (!user) {
-      return null;
-    }
-    emails.push(user.email);
-  }
-  return groupNarrow(emails);
+  const ids = data.pm_users.split(',').map(s => makeUserId(parseInt(s, 10)));
+  return pmNarrowFromRecipients(pmKeyRecipientsFromIds(ids, ownUserId));
 };
 
 const getInitialNotification = async (): Promise<Notification | null> => {
@@ -216,7 +221,8 @@ export class NotificationListener {
     // Otherwise, a device token should be some (platform-dependent and largely
     // unspecified) flavor of string.
     if (deviceToken !== null && typeof deviceToken !== 'string') {
-      // $FlowFixMe: deviceToken probably _is_ JSONable, but we can only hope
+      /* $FlowFixMe[incompatible-type]: `deviceToken` probably _is_
+         JSONable, but we can only hope. */
       const token: JSONable = deviceToken;
       logging.error('Received invalid device token', { token });
       // Take no further action.

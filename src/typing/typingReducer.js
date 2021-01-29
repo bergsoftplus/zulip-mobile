@@ -9,7 +9,7 @@ import {
   LOGIN_SUCCESS,
   ACCOUNT_SWITCH,
 } from '../actionConstants';
-import { normalizeRecipientsAsUserIdsSansMe } from '../utils/recipient';
+import { pmTypingKeyFromRecipients } from '../utils/recipient';
 import { NULL_OBJECT } from '../nullObjects';
 
 const initialState: TypingState = NULL_OBJECT;
@@ -20,8 +20,8 @@ const eventTypingStart = (state, action) => {
     return state;
   }
 
-  const normalizedRecipients: string = normalizeRecipientsAsUserIdsSansMe(
-    action.recipients,
+  const normalizedRecipients: string = pmTypingKeyFromRecipients(
+    action.recipients.map(r => r.user_id),
     action.ownUserId,
   );
   const previousTypingUsers = state[normalizedRecipients] || { userIds: [] };
@@ -47,8 +47,8 @@ const eventTypingStart = (state, action) => {
 };
 
 const eventTypingStop = (state, action) => {
-  const normalizedRecipients: string = normalizeRecipientsAsUserIdsSansMe(
-    action.recipients,
+  const normalizedRecipients: string = pmTypingKeyFromRecipients(
+    action.recipients.map(r => r.user_id),
     action.ownUserId,
   );
   const previousTypingUsers = state[normalizedRecipients];

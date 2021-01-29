@@ -1,4 +1,5 @@
 /* @flow strict-local */
+import { PixelRatio } from 'react-native';
 import distanceInWordsToNow from 'date-fns/distance_in_words_to_now';
 import template from './template';
 import type {
@@ -9,9 +10,9 @@ import type {
   Outbox,
   Reaction,
   ImageEmojiType,
+  UserId,
 } from '../../types';
 import type { BackgroundData } from '../MessageList';
-import { getAvatarFromMessage } from '../../utils/avatar';
 import { shortTime } from '../../utils/date';
 import aggregateReactions from '../../reactions/aggregateReactions';
 import { codeToEmojiMap } from '../../emoji/data';
@@ -44,7 +45,7 @@ const messageReactionAsHtml = (
 
 const messageReactionListAsHtml = (
   reactions: $ReadOnlyArray<Reaction>,
-  ownUserId: number,
+  ownUserId: UserId,
   allImageEmojiById: $ReadOnly<{ [id: string]: ImageEmojiType }>,
 ): string => {
   if (reactions.length === 0) {
@@ -95,7 +96,7 @@ export default (backgroundData: BackgroundData, message: Message | Outbox, isBri
 
   const timestampHtml = (showOnRender: boolean) => template`
 <div class="time-container">
-  <div class="timestamp ${showOnRender ? 'show' : ''}">
+  <div class="msg-timestamp ${showOnRender ? 'show' : ''}">
     ${messageTime}
   </div>
 </div>
@@ -118,7 +119,13 @@ $!${divOpenHtml}
 
   const { sender_full_name } = message;
   const sender_id = message.isOutbox ? backgroundData.ownUser.user_id : message.sender_id;
-  const avatarUrl = getAvatarFromMessage(message, backgroundData.auth.realm);
+  const avatarUrl = message.avatar_url
+    .get(
+      // 48 logical pixels; see `.avatar` and `.avatar img` in
+      // src/webview/static/base.css.
+      PixelRatio.getPixelSizeForLayoutSize(48),
+    )
+    .toString();
   const subheaderHtml = template`
 <div class="subheader">
   <div class="username">

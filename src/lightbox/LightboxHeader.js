@@ -6,6 +6,7 @@ import { shortTime, humanDate } from '../utils/date';
 import { createStyleSheet } from '../styles';
 import { UserAvatarWithPresence, Touchable } from '../common';
 import { Icon } from '../common/Icons';
+import { AvatarURL } from '../utils/avatar';
 
 const styles = createStyleSheet({
   text: {
@@ -40,21 +41,30 @@ const styles = createStyleSheet({
 
 type Props = $ReadOnly<{|
   senderName: string,
+  senderEmail: string,
   timestamp: number,
-  avatarUrl: string,
+  avatarUrl: AvatarURL,
   onPressBack: () => void,
 |}>;
 
+/**
+ * Shows sender's name and date of photo being displayed.
+ *
+ * @prop [senderName] - The sender's full name.
+ * @prop [avatarUrl]
+ * @prop [timestamp]
+ * @prop [onPressBack]
+ */
 export default class LightboxHeader extends PureComponent<Props> {
   render() {
-    const { onPressBack, senderName, timestamp, avatarUrl } = this.props;
+    const { onPressBack, senderName, senderEmail, timestamp, avatarUrl } = this.props;
     const displayDate = humanDate(new Date(timestamp * 1000));
     const time = shortTime(new Date(timestamp * 1000));
     const subheader = `${displayDate} at ${time}`;
 
     return (
       <View style={styles.wrapper}>
-        <UserAvatarWithPresence size={36} avatarUrl={avatarUrl} />
+        <UserAvatarWithPresence size={36} avatarUrl={avatarUrl} email={senderEmail} />
         <View style={styles.text}>
           <Text style={styles.name} numberOfLines={1}>
             {senderName}

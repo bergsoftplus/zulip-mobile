@@ -2,11 +2,18 @@
 import React, { PureComponent } from 'react';
 import { FlatList } from 'react-native';
 
+import type { RouteProp } from '../react-navigation';
+import type { AppNavigationProp } from '../nav/AppNavigator';
 import config from '../config';
 import { Screen } from '../common';
 import InfoItem from './InfoItem';
 
-export default class VariablesScreen extends PureComponent<{||}> {
+type Props = $ReadOnly<{|
+  navigation: AppNavigationProp<'variables'>,
+  route: RouteProp<'variables', void>,
+|}>;
+
+export default class VariablesScreen extends PureComponent<Props> {
   render() {
     const variables = {
       enableReduxLogging: config.enableReduxLogging,
